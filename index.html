@@ -65,19 +65,14 @@ function layoutGame(){
     tx = Math.floor((vw - H * scale) / 2);
     ty = Math.floor(safeTop + (vh - safeTop + W * scale) / 2);
     wrap.style.transform = `translate(${tx}px,${ty}px) rotate(-90deg) scale(${scale})`;
-    // Dialog also rotated -90° so it reads landscape (matches the game).
-    // Math: element at (left, ty) with width=canvasH, height=panelW,
-    //   rotate(-90deg) around top-left → visually occupies the RIGHT panelW px of portrait screen,
-    //   spanning the full canvas height from portrait y=canvasTop to y=ty.
-    const panelW = Math.min(252, Math.round((tx + H*scale) * 0.64)); // right-strip width in portrait
-    const canvasHpx = Math.round(W * scale); // canvas height in portrait
-    dialogLayer.style.left   = `${Math.round(tx + H*scale - panelW)}px`;
-    dialogLayer.style.top    = `${ty}px`;
-    dialogLayer.style.width  = `${canvasHpx}px`;
-    dialogLayer.style.height = `${panelW}px`;
-    dialogLayer.style.right  = 'auto';
-    dialogLayer.style.bottom = 'auto';
-    dialogLayer.style.transform = 'rotate(-90deg)';
+    // Dialog stays in normal portrait orientation — no rotation, full width at bottom
+    dialogLayer.style.left   = '0';
+    dialogLayer.style.right  = '0';
+    dialogLayer.style.bottom = '0';
+    dialogLayer.style.top    = 'auto';
+    dialogLayer.style.width  = 'auto';
+    dialogLayer.style.height = 'auto';
+    dialogLayer.style.transform = 'none';
     dialogLayer.style.transformOrigin = '0 0';
   } else {
     scale = Math.min(vw / W, (vh - safeTop) / H);
