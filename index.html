@@ -74,7 +74,6 @@ function layoutGame(){
   document.documentElement.style.setProperty('--uis', uiScale.toFixed(3));
 }
 window.addEventListener('resize', layoutGame);
-window.addEventListener('orientationchange', () => setTimeout(layoutGame, 150));
 if (window.visualViewport) window.visualViewport.addEventListener('resize', layoutGame);
 window.addEventListener('touchmove', e => { if(!(e.target.closest && (e.target.closest('#dialog-layer')))) e.preventDefault(); }, {passive:false});
 
@@ -84,8 +83,18 @@ function tryFullscreen(){
   if(el.requestFullscreen) el.requestFullscreen({navigationUI:'hide'}).catch(()=>{});
   else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
 }
+
+// Go fullscreen on rotation — hides the browser bar completely
+function onOrientationChange(){
+  tryFullscreen();
+  setTimeout(layoutGame, 200);
+}
+window.addEventListener('orientationchange', onOrientationChange);
+if(screen.orientation) screen.orientation.addEventListener('change', onOrientationChange);
+
+// Also go fullscreen on any tap if not already fullscreen (re-enters after user exits)
 if(isCoarse()){
-  document.addEventListener('touchstart', tryFullscreen, {once:true, passive:true});
+  document.addEventListener('touchstart', tryFullscreen, {passive:true});
 }
 document.addEventListener('fullscreenchange', layoutGame);
 document.addEventListener('webkitfullscreenchange', layoutGame);
