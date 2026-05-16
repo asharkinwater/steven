@@ -65,24 +65,34 @@ function layoutGame(){
     tx = Math.floor((vw - H * scale) / 2);
     ty = Math.floor(safeTop + (vh - safeTop + W * scale) / 2);
     wrap.style.transform = `translate(${tx}px,${ty}px) rotate(-90deg) scale(${scale})`;
-    // Dialog sits unrotated at the bottom of the portrait screen,
-    // overlapping the bottom portion of the canvas (which shows the road/HUD area)
-    dialogLayer.style.left = '0';
-    dialogLayer.style.right = '0';
-    dialogLayer.style.bottom = '0';
-    dialogLayer.style.top = `${Math.round(ty - W * scale * 0.42)}px`;
-    dialogLayer.style.width = 'auto';
+    // Dialog also rotated -90° so it reads landscape (matches the game).
+    // Math: element at (left, ty) with width=canvasH, height=panelW,
+    //   rotate(-90deg) around top-left → visually occupies the RIGHT panelW px of portrait screen,
+    //   spanning the full canvas height from portrait y=canvasTop to y=ty.
+    const panelW = Math.min(252, Math.round((tx + H*scale) * 0.64)); // right-strip width in portrait
+    const canvasHpx = Math.round(W * scale); // canvas height in portrait
+    dialogLayer.style.left   = `${Math.round(tx + H*scale - panelW)}px`;
+    dialogLayer.style.top    = `${ty}px`;
+    dialogLayer.style.width  = `${canvasHpx}px`;
+    dialogLayer.style.height = `${panelW}px`;
+    dialogLayer.style.right  = 'auto';
+    dialogLayer.style.bottom = 'auto';
+    dialogLayer.style.transform = 'rotate(-90deg)';
+    dialogLayer.style.transformOrigin = '0 0';
   } else {
     scale = Math.min(vw / W, (vh - safeTop) / H);
     tx = Math.floor((vw - W * scale) / 2);
     ty = Math.floor(safeTop + Math.max(0, (vh - safeTop - H * scale) / 2));
     wrap.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
-    // Dialog at the bottom of the canvas footprint
-    dialogLayer.style.left = `${tx}px`;
-    dialogLayer.style.right = `${Math.max(0, vw - tx - Math.round(W * scale))}px`;
+    // Dialog at the bottom of the canvas footprint, no rotation
+    dialogLayer.style.left   = `${tx}px`;
+    dialogLayer.style.right  = `${Math.max(0, vw - tx - Math.round(W * scale))}px`;
     dialogLayer.style.bottom = `${Math.max(0, vh - ty - Math.round(H * scale))}px`;
-    dialogLayer.style.top = 'auto';
-    dialogLayer.style.width = 'auto';
+    dialogLayer.style.top    = 'auto';
+    dialogLayer.style.width  = 'auto';
+    dialogLayer.style.height = 'auto';
+    dialogLayer.style.transform = 'none';
+    dialogLayer.style.transformOrigin = '0 0';
   }
   const uiScale = isCoarse() ? Math.min(0.92, Math.max(0.62, scale * 1.25)) : Math.max(scale, 0.42);
   document.documentElement.style.setProperty('--uis', uiScale.toFixed(3));
@@ -470,6 +480,8 @@ function showMsg(text,good=false,continueFn=null){
 
 function triggerEvent(ev){
   if(!ev) return;
+  // Always stamp oneTime events into eventsFired — double-guard against re-entry
+  if(ev.oneTime&&ev.id) GS.eventsFired.add(ev.id);
   GS.awaitingChoice=true;
   msgBox.style.display='block';
   msgBox.style.borderColor='#ffd700';
@@ -575,11 +587,10 @@ const EVENTS=[
   },
   {
     id:'fire_la', title:'HOLLYWOOD IS ON FIRE!', leg:4, oneTime:true,
-    text:"Smoke billows across the 101. A wildfire is ripping through the Hollywood Hills and jumped onto the studio lot! A fire chief waves you down: 'That water tank on your rig — we need it NOW!'",
+    text:"Smoke billows across the 101. A wildfire is ripping through the Hollywood Hills and jumped onto the studio lot! A fire chief blocks the road: 'That water tank on your rig — FIGHT THE FIRE or hand over the keys!'",
     choices:[
-      {label:'Fight the fire! (Mini-game)', fn:gs=>{gs.screen='minigame';gs.minigame='fire';}},
-      {label:'Donate the water and drive on', fn:gs=>{gs.money+=200;gs.reputation+=15;successJingle();showMsg('You open the valve and keep rolling. The chief radios ahead — hero trucker saves the studio. +$200, +15 Rep.',true);}},
-      {label:'This is above my pay grade', fn:gs=>{gs.reputation-=10;showMsg('You floor it past the checkpoint. In the mirror you see a Paramount sound stage collapse. -10 Rep.',false);}},
+      {label:'FIGHT THE FIRE! (Mini-game)', fn:gs=>{gs.screen='minigame';gs.minigame='fire';}},
+      {label:'Hand over the keys & flee', fn:gs=>{gs.money=Math.max(0,gs.money-150);gs.reputation-=5;showMsg("The chief commandeers your rig. You walk to the nearest In-N-Out. Truck returned later, smelling of smoke. -$150, -5 Rep.",false);}},
     ]
   },
   {
@@ -1629,49 +1640,50 @@ function drawFire_mg(){
 // MINI-GAME: SNOWBOARD — Breckenridge Yeti Slalom
 // ============================================================
 function initSnowboard(){
+  const now=performance.now();
   GS.mg={
     phase:'play',
-    sx:W/2, vy:0, vx:0,
-    obstacles:[],
+    sx:W/2, vx:0,
+    obstacles:[], particles:[],
     spawnTimer:0, scrollY:0,
-    survived:0, needed:1200, // ~20 seconds
-    yetisAvoided:0,
-    particles:[],
+    startT:now, endT:now+22000, // 22 real seconds
     speed:3,
   };
 }
 function updateSnowboard(){
   const mg=GS.mg; if(mg.phase!=='play') return;
+  const now=performance.now();
   const steer=2.8;
   if(keys['ArrowLeft']||keys['KeyA']) mg.vx=Math.max(-steer,mg.vx-.35);
   else if(keys['ArrowRight']||keys['KeyD']) mg.vx=Math.min(steer,mg.vx+.35);
   else mg.vx*=0.88;
   mg.sx=Math.max(30,Math.min(W-30,mg.sx+mg.vx));
-  mg.scrollY+=mg.speed; mg.survived++;
-  mg.speed=Math.min(6,3+mg.survived/600);
+  const elapsed=now-mg.startT;
+  mg.speed=Math.min(7,3+elapsed/4000);
+  mg.scrollY+=mg.speed;
   mg.spawnTimer++;
-  if(mg.spawnTimer>55){
+  if(mg.spawnTimer>50){
     mg.spawnTimer=0;
-    const isYeti=Math.random()<0.35;
-    mg.obstacles.push({x:40+Math.random()*(W-80),y:-40,w:isYeti?28:14,h:isYeti?36:32,isYeti,vx:(Math.random()-.5)*1.2,alive:true});
+    const isYeti=Math.random()<0.40;
+    mg.obstacles.push({x:60+Math.random()*(W-120),y:-60,w:isYeti?30:16,h:isYeti?38:30,isYeti,vx:(Math.random()-.5)*1.4,alive:true});
   }
   mg.obstacles.forEach(o=>{
     o.y+=mg.speed; o.x+=o.vx;
-    if(o.x<20||o.x>W-20) o.vx*=-1;
+    if(o.x<30||o.x>W-30) o.vx*=-1;
     if(!o.alive) return;
     const dx=mg.sx-o.x, dy=(H-100)-o.y;
-    if(Math.abs(dx)<o.w&&Math.abs(dy)<o.h){
+    if(Math.abs(dx)<o.w+8&&Math.abs(dy)<o.h+8){
       o.alive=false;
-      for(let i=0;i<6;i++) mg.particles.push({x:mg.sx,y:H-100,vx:(Math.random()-.5)*5,vy:-Math.random()*4,life:22,col:o.isYeti?'#fff':'#a0d8f0'});
-      mg.survived=Math.max(0,mg.survived-200);
-      beep(150,.2,'square',.2);
-      if(o.isYeti) mg.yetisAvoided=Math.max(0,mg.yetisAvoided-1);
+      beep(150,.25,'square',.25);
+      for(let i=0;i<8;i++) mg.particles.push({x:mg.sx,y:H-100,vx:(Math.random()-.5)*6,vy:-Math.random()*5-1,life:28,col:o.isYeti?'#ddeeff':'#a0d8f0'});
+      // penalty: push back the end time
+      mg.endT=Math.min(mg.endT+2500, now+28000);
     }
   });
-  mg.obstacles=mg.obstacles.filter(o=>o.y<H+50);
+  mg.obstacles=mg.obstacles.filter(o=>o.y<H+60);
   mg.particles=mg.particles.filter(p=>p.life>0);
-  mg.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.2;p.life--;});
-  if(mg.survived>=mg.needed){mg.phase='win';successJingle();}
+  mg.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.18;p.life--;});
+  if(now>=mg.endT){mg.phase='win';successJingle();}
 }
 function drawSnowboard_mg(){
   const mg=GS.mg;
@@ -1721,12 +1733,15 @@ function drawSnowboard_mg(){
   // HUD
   rect(0,0,W,36,'rgba(0,0,0,0.7)');
   txt('BRECKENRIDGE SNOWBOARD RUN',W/2,23,'#88ccff',14,'center');
-  const pct=Math.min(1,mg.survived/mg.needed);
+  const now2=performance.now();
+  const elapsed2=now2-mg.startT;
+  const totalDur=mg.endT-mg.startT;
+  const pct=Math.min(1,elapsed2/totalDur);
   rect(20,6,W-40,10,'#224'); rect(20,6,(W-40)*pct,10,'#4af');
-  txt(`${Math.floor(pct*100)}%`,W/2,15,'#fff',8,'center');
-  txt('ARROWS: steer  avoid yetis & trees!',W/2,H-8,'#aaa',9,'center');
-  if(mg.phase==='win'){overlay();txtShadow('GNARLY!',W/2,H/2-30,'#00ff88','#004400',36,'center');txt('Steven shreds the mountain!',W/2,H/2+10,'#ffd700',14,'center');txt('+$150 +10 Rep  recovered',W/2,H/2+32,'#00ff88',12,'center');if(Math.floor(GS.t*.07)%2)txt('ENTER to continue',W/2,H/2+58,'#fff',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;GS.money+=150;GS.reputation+=10;GS.health=Math.min(100,GS.health+20);exitMinigame(true);}}
-  if(mg.phase==='lose'){ /* can't lose snowboard — timer only */ }
+  const secLeft=Math.max(0,Math.ceil((mg.endT-now2)/1000));
+  txt(`⏱ ${secLeft}s`,W-10,25,'#88ccff',13,'right');
+  txt('ARROWS/DRAG: steer   avoid YETIS & trees!',W/2,H-8,'#aaa',9,'center');
+  if(mg.phase==='win'){overlay();txtShadow('GNARLY!',W/2,H/2-30,'#00ff88','#004400',36,'center');txt('Steven shreds the mountain!',W/2,H/2+10,'#ffd700',14,'center');txt('+$150 +10 Rep +20 HP',W/2,H/2+32,'#00ff88',12,'center');if(Math.floor(GS.t*.07)%2)txt('TAP or ENTER to continue',W/2,H/2+58,'#fff',12,'center');if(kd['Enter']||kd['Space']||kd['MouseLeft']){kd['Enter']=false;kd['Space']=false;kd['MouseLeft']=false;GS.money+=150;GS.reputation+=10;GS.health=Math.min(100,GS.health+20);exitMinigame(true);}}
 }
 
 // ---- UTILITIES ----
