@@ -58,37 +58,18 @@ const dialogLayer = document.getElementById('dialog-layer');
 function layoutGame(){
   const vw = window.innerWidth, vh = window.innerHeight;
   const safeTop = Math.max(0, Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 0);
-  let scale, tx, ty;
-  if(isPortrait()){
-    // Rotate game -90° so landscape canvas fills a portrait screen
-    scale = Math.min(vw / H, (vh - safeTop) / W);
-    tx = Math.floor((vw - H * scale) / 2);
-    ty = Math.floor(safeTop + (vh - safeTop + W * scale) / 2);
-    wrap.style.transform = `translate(${tx}px,${ty}px) rotate(-90deg) scale(${scale})`;
-    // Dialog stays in normal portrait orientation — no rotation, full width at bottom
-    dialogLayer.style.left   = '0';
-    dialogLayer.style.right  = '0';
-    dialogLayer.style.bottom = '0';
-    dialogLayer.style.top    = 'auto';
-    dialogLayer.style.width  = 'auto';
-    dialogLayer.style.height = 'auto';
-    dialogLayer.style.transform = 'none';
-    dialogLayer.style.transformOrigin = '0 0';
-  } else {
-    scale = Math.min(vw / W, (vh - safeTop) / H);
-    tx = Math.floor((vw - W * scale) / 2);
-    ty = Math.floor(safeTop + Math.max(0, (vh - safeTop - H * scale) / 2));
-    wrap.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
-    // Dialog at the bottom of the canvas footprint, no rotation
-    dialogLayer.style.left   = `${tx}px`;
-    dialogLayer.style.right  = `${Math.max(0, vw - tx - Math.round(W * scale))}px`;
-    dialogLayer.style.bottom = `${Math.max(0, vh - ty - Math.round(H * scale))}px`;
-    dialogLayer.style.top    = 'auto';
-    dialogLayer.style.width  = 'auto';
-    dialogLayer.style.height = 'auto';
-    dialogLayer.style.transform = 'none';
-    dialogLayer.style.transformOrigin = '0 0';
-  }
+  const scale = Math.min(vw / W, (vh - safeTop) / H);
+  const tx = Math.floor((vw - W * scale) / 2);
+  const ty = Math.floor(safeTop + Math.max(0, (vh - safeTop - H * scale) / 2));
+  wrap.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+  dialogLayer.style.left   = `${tx}px`;
+  dialogLayer.style.right  = `${Math.max(0, vw - tx - Math.round(W * scale))}px`;
+  dialogLayer.style.bottom = `${Math.max(0, vh - ty - Math.round(H * scale))}px`;
+  dialogLayer.style.top    = 'auto';
+  dialogLayer.style.width  = 'auto';
+  dialogLayer.style.height = 'auto';
+  dialogLayer.style.transform = 'none';
+  dialogLayer.style.transformOrigin = '0 0';
   const uiScale = isCoarse() ? Math.min(0.92, Math.max(0.62, scale * 1.25)) : Math.max(scale, 0.42);
   document.documentElement.style.setProperty('--uis', uiScale.toFixed(3));
 }
@@ -142,23 +123,16 @@ function press(code){ if(!keys[code]) kd[code]=true; keys[code]=true; }
 function release(code){ keys[code]=false; }
 function setPointerFromClient(x,y){
   const r=C.getBoundingClientRect();
-  if(isPortrait()){
-    // Canvas is rotated -90°: physical X → game Y, physical Y → game X (inverted)
-    mouse.x=Math.max(0,Math.min(W, W*(1-(y-r.top)/r.height)));
-    mouse.y=Math.max(0,Math.min(H, H*(x-r.left)/r.width));
-  } else {
-    mouse.x=Math.max(0,Math.min(W,(x-r.left)*(W/r.width)));
-    mouse.y=Math.max(0,Math.min(H,(y-r.top)*(H/r.height)));
-  }
+  mouse.x=Math.max(0,Math.min(W,(x-r.left)*(W/r.width)));
+  mouse.y=Math.max(0,Math.min(H,(y-r.top)*(H/r.height)));
 }
 
 // Virtual joystick — replaces D-pad on touch screens
 const vj={active:false,pointerId:-1,startX:0,startY:0,dx:0,dy:0,canvasX:0,canvasY:0};
 const VJ_DEAD=16, VJ_FULL=58;
 function vjUpdate(){
-  // In portrait mode the canvas is rotated -90°, so physical X→gameY, physical Y→game-X
-  const edx = isPortrait() ? -vj.dy : vj.dx;
-  const edy = isPortrait() ?  vj.dx : vj.dy;
+  const edx = vj.dx;
+  const edy = vj.dy;
   const ax=Math.abs(edx), ay=Math.abs(edy);
   if(ax>VJ_DEAD||ay>VJ_DEAD){
     if(ax>ay){
@@ -750,7 +724,6 @@ function drawMap(){
 
   txt(`[ ENTER ] DRIVE TO ${nxt?nxt.name:'NEXT STOP'}`,625,488,'#ffd700',10,'center');
 
-  if(GS.awaitingChoice&&isPortrait()) rect(0,300,W,H,'rgba(0,0,0,0.72)');
 
   if((kd['Enter']||kd['Space'])&&!GS.awaitingChoice){
     kd['Enter']=false; kd['Space']=false;
@@ -820,7 +793,6 @@ function drawDrive(){
   if(GS.fuel<20&&Math.floor(GS.t*.1)%2) txt('⚠ LOW FUEL!',W/2,64,'#f00',15,'center');
 
   // Dim canvas behind dialog panel in portrait so text is readable
-  if(GS.awaitingChoice&&isPortrait()) rect(0,300,W,H,'rgba(0,0,0,0.72)');
 
   updateHUD();
 }
