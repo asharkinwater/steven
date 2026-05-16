@@ -1,0 +1,1595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>The Adventures of Steven: Road Warrior</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #111; overflow: hidden; font-family: 'Courier New', monospace; overscroll-behavior:none; }
+body { touch-action:none; -webkit-user-select:none; user-select:none; }
+#wrap { position: fixed; line-height: 0; transform-origin: 0 0; }
+canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; touch-action: none; }
+.scanline { position:absolute; top:0; left:0; width:100%; height:100%; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.07) 2px,rgba(0,0,0,0.07) 4px); pointer-events:none; z-index:50; }
+#ui { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:10; }
+:root { --uis: 1; }
+#hud { position:absolute; top:6px; left:6px; color:#0ff; font-family:'Courier New',monospace; font-size:calc(11px/var(--uis)); line-height:1.75; pointer-events:none; background:rgba(0,0,0,0.6); padding:calc(5px/var(--uis)) calc(9px/var(--uis)); border:1px solid rgba(0,255,255,0.25); }
+#msg-box { position:absolute; bottom:calc(56px/var(--uis)); left:2%; width:96%; background:#040414; border:3px solid #ffd700; padding:calc(12px/var(--uis)) calc(14px/var(--uis)); color:#fff; font-family:'Courier New',monospace; font-size:calc(12px/var(--uis)); line-height:1.65; display:none; pointer-events:all; z-index:20; }
+#choices { position:absolute; bottom:calc(6px/var(--uis)); left:0; width:100%; display:flex; gap:5px; flex-wrap:wrap; justify-content:center; pointer-events:all; z-index:20; padding:0 4px; }
+.pixel-btn { background:#0a0a1a; border:2px solid #e94560; color:#e94560; font-family:'Courier New',monospace; font-size:calc(11px/var(--uis)); padding:calc(8px/var(--uis)) calc(13px/var(--uis)); cursor:pointer; text-transform:uppercase; letter-spacing:1px; transition:all 0.1s; }
+.pixel-btn:hover, .pixel-btn:active { background:#e94560; color:#000; }
+#chapter-banner { position:absolute; top:0; left:0; width:100%; height:100%; display:none; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.92); z-index:40; pointer-events:none; }
+/* ---- Mobile layout (no on-screen controls — all touch via canvas) ---- */
+@media (pointer: coarse), (max-width: 820px) {
+  #hud { font-size:calc(9px/var(--uis)); line-height:1.45; max-width:96%; }
+  #msg-box {
+    left:3%; width:94%;
+    bottom:calc(8px/var(--uis));
+    max-height:calc(260px/var(--uis));
+    padding:calc(9px/var(--uis)) calc(11px/var(--uis));
+    font-size:calc(12px/var(--uis));
+    line-height:1.45;
+    overflow-y:auto; overflow-wrap:break-word; -webkit-overflow-scrolling:touch;
+  }
+  #msg-box span { font-size:inherit !important; }
+  #choices {
+    left:3%; width:94%;
+    bottom:calc(8px/var(--uis));
+    display:grid; grid-template-columns:1fr;
+    gap:calc(7px/var(--uis)); padding:0;
+  }
+  #choices:empty { display:none; }
+  .pixel-btn {
+    width:100%; min-height:calc(46px/var(--uis));
+    padding:calc(9px/var(--uis)) calc(12px/var(--uis));
+    font-size:calc(12px/var(--uis)); line-height:1.2;
+    letter-spacing:0; white-space:normal; overflow-wrap:anywhere;
+  }
+}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div class="scanline"></div>
+  <div id="ui">
+    <div id="hud"></div>
+    <div id="msg-box"></div>
+    <div id="choices"></div>
+    <div id="chapter-banner"></div>
+  </div>
+</div>
+<script>
+const C = document.getElementById('c');
+const ctx = C.getContext('2d');
+const W = 800, H = 520;
+C.width = W; C.height = H;
+const wrap = document.getElementById('wrap');
+wrap.style.width = W + 'px'; wrap.style.height = H + 'px';
+const isCoarse = () => matchMedia('(pointer: coarse)').matches || innerWidth <= 820;
+const isPortrait = () => isCoarse() && window.innerWidth < window.innerHeight;
+
+function layoutGame(){
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const safeTop = Math.max(0, Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 0);
+  let scale, tx, ty;
+  if(isPortrait()){
+    // Rotate game -90° so landscape canvas fills a portrait screen
+    scale = Math.min(vw / H, (vh - safeTop) / W);
+    tx = Math.floor((vw - H * scale) / 2);
+    ty = Math.floor(safeTop + (vh - safeTop + W * scale) / 2);
+    wrap.style.transform = `translate(${tx}px,${ty}px) rotate(-90deg) scale(${scale})`;
+  } else {
+    scale = Math.min(vw / W, (vh - safeTop) / H);
+    tx = Math.floor((vw - W * scale) / 2);
+    ty = Math.floor(safeTop + Math.max(0, (vh - safeTop - H * scale) / 2));
+    wrap.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+  }
+  const uiScale = isCoarse() ? Math.min(0.92, Math.max(0.62, scale * 1.25)) : Math.max(scale, 0.42);
+  document.documentElement.style.setProperty('--uis', uiScale.toFixed(3));
+}
+window.addEventListener('resize', layoutGame);
+window.addEventListener('orientationchange', () => setTimeout(layoutGame, 150));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', layoutGame);
+window.addEventListener('touchmove', e => { if(!(e.target.closest && e.target.closest('#msg-box'))) e.preventDefault(); }, {passive:false});
+layoutGame();
+
+// ---- GAME STATE ----
+const GS = {
+  screen: 'title',
+  minigame: null,
+  chapter: 1,
+  health: 100, fuel: 100, chips: 500, money: 250, reputation: 50, miles: 0, day: 1,
+  flags: { gainedPowers:false, lostClothes:false, ninjasDefeated:false, huntingDone:false, llnlVisited:false, becameGarbageMan:false },
+  // Route: Bothell=0, Portland=1, Sacramento=2, Livermore=3(LLNL auto), LA=4, LV=5, SLC=6, Denver=7, ABQ=8
+  destinations: [
+    { name:'Bothell, WA',       x:138, y:72  },
+    { name:'Portland, OR',      x:120, y:152 },
+    { name:'Sacramento, CA',    x:88,  y:258 },
+    { name:'Livermore, CA',     x:78,  y:295, special:'llnl' },
+    { name:'Los Angeles, CA',   x:68,  y:375 },
+    { name:'Las Vegas, NV',     x:188, y:358 },
+    { name:'Salt Lake City, UT',x:255, y:272 },
+    { name:'Denver, CO',        x:330, y:262 },
+    { name:'Albuquerque, NM',   x:300, y:378 },
+    { name:'Bothell, WA',       x:138, y:72, return:true },
+  ],
+  currentDest: 0,
+  driveProgress: 0, driveTarget: 0, driveSpeed: 1,
+  mg: {}, mgScore: 0,
+  awaitingChoice: false,
+  eventsFired: new Set(),
+  t: 0, frameCount: 0,
+};
+
+// region helper (for road backgrounds)
+function region() {
+  const d = GS.currentDest;
+  if (d <= 1) return 'nw';
+  if (d <= 4) return 'ca';
+  if (d <= 6) return 'desert';
+  return 'mountain';
+}
+
+// ---- INPUT ----
+const keys = {}, kd = {};
+const mouse = {x: W/2, y: H/2};
+function press(code){ if(!keys[code]) kd[code]=true; keys[code]=true; }
+function release(code){ keys[code]=false; }
+function setPointerFromClient(x,y){
+  const r=C.getBoundingClientRect();
+  if(isPortrait()){
+    // Canvas is rotated -90°: physical X → game Y, physical Y → game X (inverted)
+    mouse.x=Math.max(0,Math.min(W, W*(1-(y-r.top)/r.height)));
+    mouse.y=Math.max(0,Math.min(H, H*(x-r.left)/r.width));
+  } else {
+    mouse.x=Math.max(0,Math.min(W,(x-r.left)*(W/r.width)));
+    mouse.y=Math.max(0,Math.min(H,(y-r.top)*(H/r.height)));
+  }
+}
+
+// Virtual joystick — replaces D-pad on touch screens
+const vj={active:false,pointerId:-1,startX:0,startY:0,dx:0,dy:0,canvasX:0,canvasY:0};
+const VJ_DEAD=16, VJ_FULL=58;
+function vjUpdate(){
+  // In portrait mode the canvas is rotated -90°, so physical X→gameY, physical Y→game-X
+  const edx = isPortrait() ? -vj.dy : vj.dx;
+  const edy = isPortrait() ?  vj.dx : vj.dy;
+  const ax=Math.abs(edx), ay=Math.abs(edy);
+  if(ax>VJ_DEAD||ay>VJ_DEAD){
+    if(ax>ay){
+      release('ArrowUp'); release('ArrowDown');
+      if(edx< -VJ_DEAD) press('ArrowLeft'); else release('ArrowLeft');
+      if(edx>  VJ_DEAD) press('ArrowRight'); else release('ArrowRight');
+    } else {
+      release('ArrowLeft'); release('ArrowRight');
+      if(edy< -VJ_DEAD) press('ArrowUp'); else release('ArrowUp');
+      if(edy>  VJ_DEAD) press('ArrowDown'); else release('ArrowDown');
+    }
+  } else {
+    ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].forEach(release);
+  }
+}
+function vjEnd(wasTap){
+  vj.active=false; vj.pointerId=-1;
+  ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].forEach(release);
+  if(wasTap){ kd['Space']=true; kd['MouseLeft']=true; }
+}
+function drawVJ(){
+  if(!vj.active||!isCoarse()) return;
+  const bx=vj.canvasX, by=vj.canvasY;
+  const dx=mouse.x-bx, dy=mouse.y-by, dist=Math.sqrt(dx*dx+dy*dy);
+  const cx=dist>VJ_FULL?bx+dx/dist*VJ_FULL:mouse.x;
+  const cy=dist>VJ_FULL?by+dy/dist*VJ_FULL:mouse.y;
+  ctx.save();
+  ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(bx,by,VJ_FULL,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,0.38)';
+  ctx.beginPath(); ctx.arc(cx,cy,22,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+window.addEventListener('keydown', e => { e.preventDefault(); press(e.code); });
+window.addEventListener('keyup',   e => { release(e.code); });
+C.addEventListener('mousemove', e => setPointerFromClient(e.clientX,e.clientY));
+C.addEventListener('mousedown', e => { setPointerFromClient(e.clientX,e.clientY); kd['MouseLeft']=true; });
+C.addEventListener('pointerdown', e => {
+  setPointerFromClient(e.clientX,e.clientY);
+  kd['MouseLeft']=true;
+  if(AC.state==='suspended') AC.resume();
+  if(isCoarse()&&!vj.active){
+    vj.active=true; vj.pointerId=e.pointerId;
+    vj.startX=e.clientX; vj.startY=e.clientY; vj.dx=0; vj.dy=0;
+    vj.canvasX=mouse.x; vj.canvasY=mouse.y;
+  }
+});
+C.addEventListener('pointermove', e => {
+  setPointerFromClient(e.clientX,e.clientY);
+  if(vj.active&&e.pointerId===vj.pointerId){
+    vj.dx=e.clientX-vj.startX; vj.dy=e.clientY-vj.startY;
+    vjUpdate();
+  }
+});
+C.addEventListener('pointerup', e => {
+  if(vj.active&&e.pointerId===vj.pointerId){
+    vjEnd(Math.abs(vj.dx)<14&&Math.abs(vj.dy)<14);
+  }
+});
+C.addEventListener('pointercancel', e => {
+  if(vj.active&&e.pointerId===vj.pointerId) vjEnd(false);
+});
+
+
+// ---- SOUND ----
+const AC = new (window.AudioContext||window.webkitAudioContext)();
+function beep(freq,dur=0.1,type='square',vol=0.14) {
+  try {
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type=type; o.frequency.value=freq;
+    g.gain.setValueAtTime(vol,AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,AC.currentTime+dur);
+    o.start(); o.stop(AC.currentTime+dur);
+  } catch(e){}
+}
+function playJingle(notes){notes.forEach(([f,d,t])=>setTimeout(()=>beep(f,d,'square',0.12),t));}
+function titleJingle(){playJingle([[330,.15,0],[392,.15,150],[440,.15,300],[523,.3,450],[440,.15,800],[392,.15,950],[330,.4,1100]]);}
+function successJingle(){playJingle([[523,.1,0],[659,.1,120],[784,.2,240]]);}
+function failJingle(){playJingle([[300,.15,0],[250,.15,150],[200,.3,300]]);}
+
+// ---- DRAW HELPERS ----
+function rect(x,y,w,h,col){ctx.fillStyle=col;ctx.fillRect(x,y,w,h);}
+function rectOutline(x,y,w,h,col,t=2){ctx.strokeStyle=col;ctx.lineWidth=t;ctx.strokeRect(x+t/2,y+t/2,w-t,h-t);}
+function txt(s,x,y,col='#fff',size=12,align='left'){ctx.font=`bold ${size}px 'Courier New'`;ctx.fillStyle=col;ctx.textAlign=align;ctx.fillText(s,x,y);}
+function txtShadow(s,x,y,col,shadow,size,align='center'){
+  ctx.font=`bold ${size}px 'Courier New'`; ctx.textAlign=align;
+  ctx.fillStyle=shadow; ctx.fillText(s,x+2,y+2);
+  ctx.fillStyle=col;    ctx.fillText(s,x,y);
+}
+
+// ---- SPRITES ----
+function drawSteven(x,y,scale=1,anim=0) {
+  const s=scale, la=Math.sin(anim*.3)*3;
+  rect(x-6*s,y+20*s+la,8*s,12*s,'#3a5a8c');
+  rect(x+2*s,y+20*s-la,8*s,12*s,'#3a5a8c');
+  rect(x-8*s,y+30*s,10*s,4*s,'#222');
+  rect(x+2*s,y+30*s,10*s,4*s,'#222');
+  rect(x-10*s,y+8*s,24*s,14*s,'#e8e8e8');
+  rect(x-16*s,y+10*s,8*s,10*s,'#f0c8a0');
+  rect(x+12*s,y+10*s,8*s,10*s,'#f0c8a0');
+  rect(x-8*s,y-10*s,20*s,20*s,'#f0c8a0');
+  rect(x-8*s,y-10*s,20*s,6*s,'#8B4513');
+  rect(x-4*s,y+6*s,12*s,4*s,'#9B7355');
+  ctx.strokeStyle='#555'; ctx.lineWidth=s;
+  ctx.strokeRect(x-7*s,y-2*s,8*s,6*s);
+  ctx.strokeRect(x+1*s,y-2*s,8*s,6*s);
+  ctx.beginPath(); ctx.moveTo(x+1*s,y+s); ctx.lineTo(x+s,y+s); ctx.stroke();
+  rect(x-5*s,y,3*s,3*s,'#333'); rect(x+3*s,y,3*s,3*s,'#333');
+}
+
+function drawAugust(x,y,scale=1) {
+  const s=scale;
+  rect(x-6*s,y+20*s,8*s,12*s,'#1a3a5c'); rect(x+2*s,y+20*s,8*s,12*s,'#1a3a5c');
+  rect(x-10*s,y+8*s,24*s,14*s,'#1a5c8c');
+  rect(x-16*s,y+10*s,8*s,10*s,'#1a5c8c'); rect(x+12*s,y+10*s,8*s,10*s,'#1a5c8c');
+  rect(x-8*s,y-10*s,20*s,20*s,'#d4a882');
+  rect(x-8*s,y+2*s,20*s,10*s,'#5a4030');
+  rect(x-8*s,y-12*s,20*s,8*s,'#c8a878'); rect(x-4*s,y-18*s,14*s,8*s,'#6495ED');
+  ctx.strokeStyle='#111'; ctx.lineWidth=2*s;
+  ctx.strokeRect(x-7*s,y-4*s,8*s,6*s); ctx.strokeRect(x+1*s,y-4*s,8*s,6*s);
+  rect(x-5*s,y-2*s,3*s,3*s,'#333'); rect(x+3*s,y-2*s,3*s,3*s,'#333');
+}
+
+// Truck facing RIGHT: trailer on left, cab (front) on right
+function drawTruck(x,y,scale=1,col='#e63946') {
+  const s=scale;
+  // trailer
+  rect(x,y-18*s,108*s,36*s,'#b8b8b8');
+  rect(x,y-22*s,108*s,5*s,'#999');
+  ctx.font=`bold ${Math.max(6,Math.round(8*s))}px 'Courier New'`;
+  ctx.fillStyle='#555'; ctx.textAlign='center';
+  ctx.fillText('POTATO CHIPS',x+54*s,y+3*s);
+  // cab (front/right)
+  rect(x+100*s,y-24*s,52*s,44*s,col);
+  rect(x+100*s,y+14*s,52*s,5*s,'#b02020');
+  // windshield on right side of cab = front
+  rect(x+124*s,y-20*s,24*s,17*s,'#88ccff');
+  // headlights at nose
+  rect(x+148*s,y-9*s,5*s,5*s,'#ffff99');
+  rect(x+148*s,y+1*s,5*s,4*s,'#ff4400');
+  // wheels
+  [[x+10*s],[x+70*s],[x+108*s],[x+128*s]].forEach(([wx])=>{
+    rect(wx,y+14*s,18*s,18*s,'#1a1a1a');
+    rect(wx+3*s,y+17*s,12*s,12*s,'#444');
+    rect(wx+6*s,y+20*s,6*s,6*s,'#777');
+  });
+  // exhaust stacks on rear-left of cab
+  rect(x+102*s,y-40*s,5*s,18*s,'#666');
+  rect(x+109*s,y-42*s,5*s,18*s,'#888');
+  // smoke
+  if(Math.floor(GS.t*.1)%3===0){
+    ctx.fillStyle='rgba(160,160,160,0.35)';
+    ctx.beginPath(); ctx.arc(x+105*s,y-43*s,7*s,0,Math.PI*2); ctx.fill();
+  }
+}
+
+function drawTree(x,y,s=1){rect(x-4,y,8,20*s,'#5a3010');rect(x-16,y-30*s,32,30*s,'#2d6a10');rect(x-10,y-50*s,20,24*s,'#1d5a00');}
+function drawCloud(x,y,w){
+  ctx.fillStyle='rgba(220,228,242,0.52)';
+  ctx.beginPath();ctx.arc(x,y,w*.38,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(x+w*.28,y-w*.12,w*.28,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(x+w*.56,y+w*.04,w*.22,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(x-w*.26,y+w*.06,w*.20,0,Math.PI*2);ctx.fill();
+}
+function drawPalm(x,y){
+  rect(x-3,y,6,55,'#8B6914');
+  for(let i=0;i<7;i++){const a=i*Math.PI/3.5-Math.PI/6; ctx.strokeStyle='#2d6a10'; ctx.lineWidth=4; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+Math.cos(a)*35,y-20+Math.sin(a)*18); ctx.stroke();}
+}
+function drawCactus(x,y){
+  rect(x-5,y-40,10,50,'#2d6a10');
+  rect(x-18,y-25,13,8,'#2d6a10'); rect(x-18,y-35,8,18,'#2d6a10');
+  rect(x+5,y-20,13,8,'#2d6a10');  rect(x+5,y-30,8,14,'#2d6a10');
+}
+function drawMountains(yBase,col='#1a3a5c'){
+  ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(0,yBase);
+  [0,80,160,240,320,400,480,560,640,720,800].forEach((x,i)=>{
+    const h=i%2===0?55+Math.sin(i*1.3)*40:15+Math.sin(i*.7)*20;
+    ctx.lineTo(x,yBase-h);
+  });
+  ctx.lineTo(800,yBase); ctx.closePath(); ctx.fill();
+}
+function drawStars(n=50){
+  for(let i=0;i<n;i++){
+    const sx=(i*137)%800,sy=(i*97)%150;
+    rect(sx,sy,2,2,Math.sin(GS.t*.05+i)>.5?'#fff':'#aaa');
+  }
+}
+
+// Region-specific road scene
+function drawRoad(offset=0) {
+  const reg=region();
+
+  // Sky
+  let sky=ctx.createLinearGradient(0,0,0,H);
+  if(reg==='nw'){
+    sky.addColorStop(0,'#0a1a2e'); sky.addColorStop(.45,'#1a3a5c'); sky.addColorStop(.6,'#4a6a8a'); sky.addColorStop(1,'#222');
+  } else if(reg==='ca'){
+    sky.addColorStop(0,'#0a0a2e'); sky.addColorStop(.35,'#1a3a6e'); sky.addColorStop(.5,'#e87c3e'); sky.addColorStop(.65,'#c8501a'); sky.addColorStop(1,'#222');
+  } else if(reg==='desert'){
+    sky.addColorStop(0,'#000818'); sky.addColorStop(.4,'#102040'); sky.addColorStop(.55,'#c84010'); sky.addColorStop(.7,'#8B3010'); sky.addColorStop(1,'#1a1a0a');
+  } else {
+    sky.addColorStop(0,'#050520'); sky.addColorStop(.4,'#0a1a40'); sky.addColorStop(.55,'#2a4a6a'); sky.addColorStop(.7,'#3a3a2a'); sky.addColorStop(1,'#111');
+  }
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+
+  if(reg==='nw'||reg==='mountain') drawStars(30);
+  else drawStars(50);
+
+  // Animated clouds
+  if(reg==='nw'||reg==='ca'){
+    [[90,68,68],[230,52,54],[400,74,72],[560,58,60],[720,66,58]].forEach(([cx,cy,cw],i)=>{
+      drawCloud(((cx-offset*.06*(1+i*.15))%920+920)%920, cy, cw);
+    });
+  } else if(reg==='mountain'){
+    [[80,60,45],[310,50,38],[590,64,50]].forEach(([cx,cy,cw])=>{
+      drawCloud(((cx-offset*.05)%920+920)%920, cy, cw);
+    });
+  }
+
+  // Background scenery
+  if(reg==='nw'){
+    drawMountains(210,'#1a3a5c');
+    // Far treeline silhouette
+    ctx.fillStyle='#163516';
+    for(let i=0;i<14;i++){const tx=((i*68-offset*.12)%960+960)%960;ctx.fillRect(tx,200,10,22);}
+    for(let i=0;i<6;i++) drawTree(((i*145-offset*.3)%960+960)%960,272,.9+i%3*.25);
+  } else if(reg==='ca'){
+    ctx.fillStyle='#c8a820';
+    for(let i=0;i<5;i++){ctx.beginPath();ctx.arc(i*200+80,195,130,0,Math.PI);ctx.fill();}
+    ctx.fillStyle='#a88010';
+    for(let i=0;i<4;i++){ctx.beginPath();ctx.arc(i*210+40,210,90,0,Math.PI);ctx.fill();}
+    for(let i=0;i<5;i++) drawPalm(((i*160-offset*.4)%960+960)%960,260);
+  } else if(reg==='desert'){
+    drawMountains(205,'#6a2a10');
+    // Distant haze
+    ctx.fillStyle='rgba(200,100,40,0.1)';ctx.fillRect(0,190,W,40);
+    for(let i=0;i<5;i++) drawCactus(((i*172-offset*.35)%1020+1020)%1020,290);
+    ctx.fillStyle='#8B3010';
+    for(let i=0;i<3;i++){const rx=((i*268+50-offset*.18)%920+920)%920;ctx.fillRect(rx,210,42,62);ctx.fillRect(rx+11,194,22,20);}
+    // Tumbleweed
+    const tw=((offset*1.2)%W+W)%W;
+    ctx.strokeStyle='rgba(160,130,60,0.6)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(tw,318,7,0,Math.PI*2);ctx.stroke();
+  } else {
+    drawMountains(200,'#2a3a5c');
+    ctx.fillStyle='#dde8f0';
+    [80,200,320,440,560,680].forEach(x=>{ctx.beginPath();ctx.arc(x,145,26,0,Math.PI);ctx.fill();});
+    for(let i=0;i<4;i++) drawTree(((i*185-offset*.4)%940+940)%940,275,1.1+i%2*.3);
+  }
+
+  // Ground strip
+  const gcol=reg==='desert'?'#5a3a1a':reg==='ca'?'#6a7a2a':'#2a3a2a';
+  rect(0,310,W,H-310,gcol);
+  // Ground texture
+  ctx.fillStyle=reg==='desert'?'rgba(100,60,20,0.25)':'rgba(30,70,30,0.25)';
+  for(let i=0;i<7;i++){const gx=((i*128-offset*.8)%960+960)%960;ctx.fillRect(gx,312,55,9);}
+  rect(0,307,W,7,'#4a4a3a');
+
+  // Guardrails
+  ctx.strokeStyle='#bbb'; ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(0,333);ctx.lineTo(W,333);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,456);ctx.lineTo(W,456);ctx.stroke();
+  for(let i=0;i<8;i++){const px=((i*115-offset*.55)%960+960)%960;rect(px,326,4,15,'#aaa');rect(px,454,4,13,'#aaa');}
+
+  // Road surface
+  rect(0,338,W,120,'#2e2e2e');
+  rect(0,334,W,7,'#555');
+  rect(0,455,W,7,'#555');
+  // Road texture (subtle light/dark bands)
+  ctx.fillStyle='rgba(0,0,0,0.08)';
+  for(let i=0;i<5;i++){const rx=((i*190-offset*1.4)%960+960)%960;ctx.fillRect(rx,338,95,120);}
+  // Center dashes
+  for(let i=0;i<10;i++){const rx=((i*120-offset*3)%900+900)%900; rect(rx,391,65,8,'#ffd700');}
+  // Shoulder lines
+  for(let i=0;i<25;i++){const rx=((i*40-offset*2)%1000+1000)%1000; rect(rx,338,18,3,'#fff'); rect(rx,454,18,3,'#fff');}
+
+  // Mile markers (small roadside posts)
+  for(let i=0;i<3;i++){
+    const mx=((i*320+80-offset*1.7)%980+980)%980;
+    if(mx<W){rect(mx,300,4,38,'#ccc');rect(mx-9,300,22,13,'#fff');rectOutline(mx-9,300,22,13,'#aaa',1);txt(`${Math.floor(GS.miles+i*4)}`,mx+2,311,'#333',7,'center');}
+  }
+  // Speed limit signs
+  for(let i=0;i<2;i++){
+    const sx=((i*510+240-offset*.5)%1040+1040)%1040;
+    if(sx<W-20){rect(sx,276,3,32,'#bbb');rect(sx-14,276,31,22,'#fff');rectOutline(sx-14,276,31,22,'#cc0000',2);txt('65',sx+1,293,'#cc0000',10,'center');}
+  }
+}
+
+// ---- UI HELPERS ----
+const hud=document.getElementById('hud');
+const msgBox=document.getElementById('msg-box');
+const choicesDiv=document.getElementById('choices');
+const chapterBanner=document.getElementById('chapter-banner');
+
+function updateHUD(){
+  hud.innerHTML=`❤️ ${GS.health}% &nbsp; ⛽ ${Math.floor(GS.fuel)}% &nbsp; 🥔 ${GS.chips}lb &nbsp; 💰 $${GS.money}<br>⭐ REP:${GS.reputation} &nbsp; 📅 Day${GS.day} &nbsp; 🛣️ ${Math.floor(GS.miles)}mi${GS.flags.gainedPowers?' &nbsp; 🗑️ POWERS':''}`;
+}
+function hideHUD(){hud.style.display='none'; msgBox.style.display='none'; choicesDiv.innerHTML='';}
+function showHUD(){hud.style.display='block';}
+
+function showMsg(text,good=false,continueFn=null){
+  msgBox.style.display='block';
+  msgBox.style.borderColor=good?'#00ff88':'#e94560';
+  msgBox.innerHTML=`<span style="color:${good?'#00ff88':'#e94560'}">${text}</span>`;
+  choicesDiv.innerHTML='';
+  const btn=document.createElement('button');
+  btn.className='pixel-btn'; btn.textContent='[ CONTINUE ]';
+  btn.onclick=()=>{msgBox.style.display='none'; choicesDiv.innerHTML=''; GS.awaitingChoice=false; beep(440,.05); if(continueFn) continueFn();};
+  choicesDiv.appendChild(btn);
+  GS.awaitingChoice=true;
+}
+
+function triggerEvent(ev){
+  if(!ev) return;
+  GS.awaitingChoice=true;
+  msgBox.style.display='block';
+  msgBox.style.borderColor='#ffd700';
+  msgBox.innerHTML=`<span style="color:#ffd700;font-size:14px">★ ${ev.title} ★</span><br><br>${ev.text}`;
+  choicesDiv.innerHTML='';
+  ev.choices.forEach(c=>{
+    const btn=document.createElement('button');
+    btn.className='pixel-btn'; btn.textContent=`[ ${c.label} ]`;
+    btn.onclick=()=>{msgBox.style.display='none'; choicesDiv.innerHTML=''; GS.awaitingChoice=false; beep(440,.05); c.fn(GS);};
+    choicesDiv.appendChild(btn);
+  });
+  beep(880,.1); setTimeout(()=>beep(660,.1),120); setTimeout(()=>beep(440,.15),240);
+}
+
+function showChapterBanner(num,title,sub,cb){
+  chapterBanner.style.display='flex';
+  chapterBanner.innerHTML=`
+    <div style="color:#555;font-family:'Courier New',monospace;font-size:14px;letter-spacing:4px;margin-bottom:8px">CHAPTER ${num}</div>
+    <div style="color:#ffd700;font-family:'Courier New',monospace;font-size:32px;font-weight:bold;text-shadow:3px 3px #e94560;letter-spacing:3px">${title}</div>
+    <div style="color:#00ff88;font-family:'Courier New',monospace;font-size:14px;margin-top:12px">${sub}</div>`;
+  setTimeout(()=>{chapterBanner.style.display='none'; if(cb) cb();},3000);
+}
+
+// ---- EVENTS ----
+// leg: which currentDest value guarantees this event fires on first slot
+const EVENTS=[
+  {
+    id:'ninja_chips', title:'NINJA ATTACK!', leg:6,
+    text:"Dark figures drop from an overpass! They're after your potato chips! A note flutters down: 'Hand over the chips or face our KATANAS.'",
+    choices:[
+      {label:'Fight them off!', fn:gs=>{gs.screen='minigame';gs.minigame='ninja';}},
+      {label:'Scatter chips as distraction', fn:gs=>{gs.chips=Math.max(0,gs.chips-50); showMsg('You dump 50 lbs of chips! Ninjas slip on the grease and fall. You escape!',true);}},
+      {label:'Floor it!', fn:gs=>{gs.fuel-=20; showMsg('You punch the gas. Ninjas left in the dust. -20 fuel.',false);}},
+    ]
+  },
+  {
+    id:'lot_lizard_la', title:'LA TRUCK STOP INCIDENT', leg:3,
+    text:"You pull into a Compton rest stop for fuel. The moment Steven steps out, a group of lot lizards spots him and advances. Steven — a man of absolute HONOR — wants none of this.",
+    choices:[
+      {label:'RUN AWAY! (Frogger mini-game)', fn:gs=>{gs.screen='minigame';gs.minigame='frogger';}},
+      {label:'Lock yourself in the cab', fn:gs=>{showMsg('You dive back in and lock every door. They bang on the windows for 22 minutes. Your honor remains spotless.',false);}},
+    ]
+  },
+  {
+    id:'chp_chase', title:'CHP LIGHTS BEHIND YOU!', leg:2,
+    text:"RED AND BLUE flash in your mirror on I-5! A California Highway Patrol officer has clocked you doing 87 in a 65 zone. He is closing fast.",
+    choices:[
+      {label:'Floor it! (Mini-game)', fn:gs=>{gs.screen='minigame';gs.minigame='chp';}},
+      {label:'Pull over peacefully', fn:gs=>{gs.money=Math.max(0,gs.money-180); showMsg('"Sir, you were going 87." $180 ticket. Steven sighs deeply.',false);}},
+      {label:'Offer a bag of chips as a gesture', fn:gs=>{gs.chips=Math.max(0,gs.chips-30); showMsg('"Officer, complimentary potato chips." He BEAMS. Ticket forgotten. -30 lbs chips.',true);}},
+    ]
+  },
+  {
+    id:'turkey_hunt', title:'WILD TURKEY SPOTTED!', leg:1,
+    text:"Pulling off US-26 in rural Oregon, you spot a massive tom turkey strutting through a field like he owns the place. He eyes you with profound suspicion.",
+    choices:[
+      {label:'Hunt that turkey! (Mini-game)', fn:gs=>{gs.screen='minigame';gs.minigame='hunt';}},
+      {label:'Let it go, too majestic', fn:gs=>{gs.reputation+=5; showMsg('The turkey nods at you with slow, dignified respect. +5 Rep.',true);}},
+      {label:'Try to befriend it', fn:gs=>{gs.health-=15; showMsg('The turkey ATTACKS with terrifying aggression. Wild turkeys are NOT friendly. -15 HP.',false);}},
+    ]
+  },
+  {
+    id:'utah_mormons', title:'MISSIONARIES ON YOUR BUMPER!', leg:5,
+    text:"Two elders in white shirts and ties appear in your mirrors, pedaling furiously on bikes. They're gaining on you, waving pamphlets. 'BROTHER STEVEN! We just want to TALK!'",
+    choices:[
+      {label:'RUN! (Mini-game)', fn:gs=>{gs.screen='minigame';gs.minigame='mormon';}},
+      {label:'Accept the pamphlet graciously', fn:gs=>{gs.reputation+=3;showMsg('You accept a pamphlet through the window. Elder Johnson beams. The brochure is surprisingly well-designed. +3 Rep.',true);}},
+      {label:'Launch chips at their front wheels', fn:gs=>{gs.chips=Math.max(0,gs.chips-20);showMsg('A bag of chips jams their spokes. They wobble. You escape. -20 lbs chips.',false);}},
+    ]
+  },
+  {
+    id:'nm_aliens', title:'UFO ON I-25!', leg:7,
+    text:"A blinding beam descends near Santa Fe. Three spindly grey figures emerge from a hovering saucer. One raises what looks like a raygun. Another points directly at your potato chip trailer.",
+    choices:[
+      {label:'FIGHT THEM! (Mini-game)', fn:gs=>{gs.screen='minigame';gs.minigame='alien';}},
+      {label:'Offer chips as diplomatic gesture', fn:gs=>{gs.chips=Math.max(0,gs.chips-80);gs.reputation+=10;successJingle();showMsg('The alien leader tries a chip, vibrates intensely, and signals retreat. +10 Rep. -80 lbs chips.',true);}},
+      {label:'Use telekinesis trash shield', fn:gs=>{if(gs.flags.gainedPowers){showMsg('Steven summons a swirling vortex of trash. Aliens retreat! Powers confirmed effective on extraterrestrials.',true);}else{gs.health-=25;showMsg('Steven tries to will a garbage can at them. It doesn\'t move. -25 HP.',false);}}},
+    ]
+  },
+  {
+    id:'lost_clothes', title:'WARDROBE MALFUNCTION!', oneTime:true,
+    text:"A freak wind gust catches Steven's unsecured laundry bag. His ENTIRE wardrobe — every shirt, every pair of jeans — spirals off the truck and is gone forever. He finds one can of shaving cream in the glovebox.",
+    choices:[
+      {label:'Apply shaving cream strategically', fn:gs=>{gs.flags.lostClothes=true; showMsg('Steven applies shaving cream to all critical coverage zones and waddles toward the nearest truck stop looking like a very dignified foam sculpture.',false);}},
+      {label:'Wait roadside for help', fn:gs=>{gs.day+=1; gs.health-=10; showMsg('After 4 hours a baffled state trooper brings a black garbage bag. -1 day, -10 HP.',false);}},
+    ]
+  },
+  {
+    id:'flat_tire', title:'BLOWOUT!',
+    text:"BOOM! A rear tire detonates on I-5. The rig swerves wildly but Steven's iron hands keep it straight. You pull over safely on the shoulder.",
+    choices:[
+      {label:'Change it yourself', fn:gs=>{gs.money-=30; showMsg('Two grueling hours with a tire iron. Fixed! Arms noticeably larger. -$30.',false);}},
+      {label:'Call roadside assistance', fn:gs=>{gs.money-=80; showMsg('Big Earl shows up in 30 min. Fast but expensive. -$80.',false);}},
+    ]
+  },
+  {
+    id:'weigh_station', title:'WEIGH STATION DRAMA',
+    text:"The lights are on — mandatory stop. The inspector peers at your cargo manifest. 'Sir... what exactly IS in those five hundred bags?'",
+    choices:[
+      {label:'Open a bag to prove it', fn:gs=>{gs.chips-=5; gs.reputation+=3; showMsg("Inspector opens the bag and eats the ENTIRE thing in silence. Waves you through with a single tear running down his cheek. 'You're free to go.' +3 Rep.",true);}},
+      {label:'Show the paperwork', fn:gs=>{showMsg('Paperwork checks out. The inspector nods once, slowly. You drive on.',false);}},
+    ]
+  },
+];
+
+// Random trivia questions for the radio event — new one each time
+const TRIVIA=[
+  {q:"What was the first US state to ratify the Constitution?", correct:"Delaware", wrong:["Pennsylvania","New Jersey"], prize:500},
+  {q:"What year did the US Interstate Highway System begin?", correct:"1956", wrong:["1944","1968"], prize:400},
+  {q:"Which US state has the most miles of interstate highway?", correct:"Texas", wrong:["California","Ohio"], prize:350},
+  {q:"What is the longest US interstate highway?", correct:"I-90", wrong:["I-10","I-80"], prize:450},
+  {q:"How many US states have never had a tornado?", correct:"None — all 50 have", wrong:["3","7"], prize:300},
+  {q:"What city is nicknamed 'The City of Angles'?", correct:"Los Angeles", wrong:["Las Vegas","Phoenix"], prize:250},
+  {q:"What mountain range runs through Colorado?", correct:"Rocky Mountains", wrong:["Appalachians","Sierra Nevada"], prize:300},
+  {q:"What river forms the border between Texas and Mexico?", correct:"Rio Grande", wrong:["Colorado River","Pecos River"], prize:350},
+];
+let triviaPool=[];
+function getRadioEvent(){
+  if(triviaPool.length===0) triviaPool=[...TRIVIA].sort(()=>Math.random()-.5);
+  const q=triviaPool.pop();
+  const wrong=q.wrong[Math.floor(Math.random()*q.wrong.length)];
+  return {
+    id:'radio_trivia',
+    title:'RADIO TRIVIA CONTEST!',
+    text:`Country 94.3 is live with a trivia contest! The question: "${q.q}" — answer correctly and win $${q.prize} cash! The DJ is standing by...`,
+    choices:[
+      {label:q.correct, fn:gs=>{gs.money+=q.prize;gs.reputation+=8;successJingle();showMsg(`CORRECT! You win $${q.prize}! The DJ declares you the smartest trucker on the highway.`,true);}},
+      {label:wrong, fn:gs=>{showMsg('WRONG. The DJ lets out a long, disappointed sigh on air.',false);}},
+      {label:'Focus on driving', fn:gs=>{showMsg('You resist temptation. Someone else wins. Sensible, if sad.',false);}},
+    ]
+  };
+}
+
+function triggerRandomDriveEvent(isFirstSlot=false){
+  if(isFirstSlot){
+    const scripted=EVENTS.find(e=>e.leg===GS.currentDest&&!GS.eventsFired.has(e.id));
+    if(scripted){
+      if(scripted.oneTime&&GS.flags.lostClothes){/* fall through */}
+      else{GS.eventsFired.add(scripted.id);triggerEvent(scripted);return;}
+    }
+  }
+  const pool=EVENTS.filter(e=>{
+    if(e.leg!==undefined) return false;
+    if(e.oneTime&&GS.flags.lostClothes) return false;
+    return true;
+  });
+  const candidates=[...pool, getRadioEvent()];
+  const ev=candidates[Math.floor(Math.random()*candidates.length)];
+  if(ev) triggerEvent(ev);
+}
+
+// ---- SCREENS ----
+
+function drawTitle(){
+  ctx.clearRect(0,0,W,H);
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#000010'); g.addColorStop(.5,'#0a0a30'); g.addColorStop(1,'#000');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  drawStars(80);
+
+  const glow=Math.sin(GS.t*.05)*.5+.5;
+  ctx.shadowBlur=20*glow; ctx.shadowColor='#ffd700';
+  txtShadow('THE ADVENTURES OF',W/2,78,'#ffd700','#8B4500',20);
+  ctx.shadowBlur=30*glow; ctx.shadowColor='#e94560';
+  txtShadow('STEVEN',W/2,135,'#fff','#e94560',58);
+  ctx.shadowBlur=0;
+  txtShadow('ROAD WARRIOR',W/2,172,'#e94560','#600',24);
+  txt('★ A POTATO CHIP ODYSSEY ★',W/2,208,'#00ff88',13,'center');
+
+  // Animated truck (now faces right correctly)
+  const tx=((GS.t*1.5)%(W+320))-170;
+  drawTruck(tx,245,1);
+  rect(0,278,W,15,'#333');
+  for(let i=0;i<10;i++){const rx=((i*120-GS.t*1.5)%900+900)%900; rect(rx,283,60,5,'#ffd700');}
+
+  drawSteven(170,348,2.2,GS.t);
+  txt('STEVEN',170,405,'#00ff88',11,'center');
+  txt('Trucker / Hero',170,420,'#aaa',9,'center');
+
+  if(Math.floor(GS.t*.06)%2) txt('PRESS  ENTER  TO  BEGIN',W/2,468,'#ffd700',15,'center');
+
+  const feats=['🥔 DELIVER POTATO CHIPS','🥷 FIGHT NINJA THIEVES','🚔 OUTRUN THE CHP','🦃 HUNT WILD TURKEYS','⚡ GAIN TRASH POWERS'];
+  feats.forEach((f,i)=>txt(f,W-16,328+i*20,'#aaa',10,'right'));
+
+  if(kd['Enter']||kd['Space']){kd['Enter']=false;kd['Space']=false;GS.screen='map';titleJingle();}
+}
+
+function drawMap(){
+  ctx.clearRect(0,0,W,H);
+  rect(0,0,W,H,'#080e1a');
+  txtShadow('SELECT ROUTE',W/2,34,'#ffd700','#500',17);
+  txt('Drive to next destination — press ENTER',W/2,57,'#888',10,'center');
+
+  // Map area (left 450px)
+  ctx.strokeStyle='#1a3a5c'; ctx.lineWidth=2; ctx.strokeRect(44,64,408,440);
+  // State fills
+  const states=[['WA',140,100],['OR',118,178],['CA',80,310],['NV',188,300],['UT',255,245],['CO',338,230],['NM',315,370]];
+  states.forEach(([l,x,y])=>txt(l,x,y,'#1a3a6a',11,'center'));
+
+  // Route lines
+  const dests=GS.destinations;
+  ctx.setLineDash([5,5]);
+  for(let i=0;i<dests.length-1;i++){
+    const a=dests[i], b=dests[i+1];
+    ctx.strokeStyle=i<GS.currentDest?'#555':i===GS.currentDest?'#ffd700':'#2a4a2a';
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(a.x+44,a.y+64); ctx.lineTo(b.x+44,b.y+64); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Destination dots
+  dests.forEach((d,i)=>{
+    if(i>8) return; // don't show return on map until ch2
+    const rx=d.x+44, ry=d.y+64;
+    const passed=i<GS.currentDest, current=i===GS.currentDest;
+    const col=passed?'#333':current?'#ffd700':'#00ff88';
+    if(current){ctx.fillStyle='rgba(255,215,0,.18)'; ctx.beginPath(); ctx.arc(rx,ry,Math.sin(GS.t*.1)*5+10,0,Math.PI*2); ctx.fill();}
+    rect(rx-5,ry-5,10,10,col); rectOutline(rx-5,ry-5,10,10,'#fff',1);
+    if(d.special==='llnl') txt('⚗',rx-5,ry+4,'#0ff',9);
+    txt(d.name,rx,ry-10,current?'#ffd700':'#888',8,'center');
+  });
+
+  // Sidebar
+  rect(462,64,326,440,'#050c18');
+  rectOutline(462,64,326,440,'#1a3a5c',2);
+  txt('TRUCK STATUS',625,88,'#ffd700',13,'center');
+
+  const bars=[['HEALTH',GS.health,'#e94560'],['FUEL',Math.floor(GS.fuel),'#ffd700'],['REP',GS.reputation,'#00ff88']];
+  bars.forEach(([label,val,col],i)=>{
+    txt(label,476,114+i*44,'#aaa',10);
+    rect(476,119+i*44,290,13,'#111');
+    rect(476,119+i*44,Math.min(290,val*2.9),13,col);
+    txt(`${val}%`,772,130+i*44,col,9,'right');
+  });
+
+  txt(`🥔 CHIPS: ${GS.chips} lbs`,476,260,'#aaa',10);
+  txt(`💰 MONEY: $${GS.money}`,476,278,'#00ff88',10);
+  txt(`📅 DAY ${GS.day} | 🛣️ ${Math.floor(GS.miles)} mi`,476,296,'#aaa',10);
+
+  const dest=GS.destinations[GS.currentDest];
+  const nxt=GS.destinations[GS.currentDest+1];
+  if(nxt){
+    txt('NEXT STOP:',476,330,'#ffd700',10);
+    txt(nxt.name,476,348,'#fff',12);
+    if(nxt.special==='llnl') txt('★ LIVERMORE - NIF FACILITY',476,366,'#0ff',9);
+  }
+
+  if(GS.flags.gainedPowers) txt('★ TRASH POWERS ACTIVE',476,398,'#0f0',9);
+  if(GS.flags.lostClothes) txt('★ OUTFIT: SHAVING CREAM',476,413,'#f0f',9);
+  if(GS.flags.ninjasDefeated) txt('★ NINJA SLAYER',476,428,'#ff0',9);
+
+  txt(`[ ENTER ] DRIVE TO ${nxt?nxt.name:'NEXT STOP'}`,625,488,'#ffd700',10,'center');
+
+  if((kd['Enter']||kd['Space'])&&!GS.awaitingChoice){
+    kd['Enter']=false; kd['Space']=false;
+    if(GS.currentDest<GS.destinations.length-1) startDrive();
+  }
+}
+
+function startDrive(){
+  GS.screen='drive';
+  GS.driveProgress=0;
+  GS.driveTarget=1; // normalized 0→1
+  GS.driveSpeed=0;
+  GS.mg={
+    roadOffset:0, dust:[],
+    driveStartT:0,            // set on first draw frame
+    driveDuration:8000+Math.random()*2000, // 8–10 real seconds
+    drivePauseMs:0, drivePauseStart:0,
+    eventPoints:[.3+Math.random()*.08, .63+Math.random()*.08],
+    eventIdx:0,
+  };
+  showHUD();
+}
+
+function drawDrive(){
+  const now=performance.now();
+  if(!GS.mg.driveStartT) GS.mg.driveStartT=now;
+  if(GS.awaitingChoice){
+    if(!GS.mg.drivePauseStart) GS.mg.drivePauseStart=now;
+  } else {
+    if(GS.mg.drivePauseStart){GS.mg.drivePauseMs+=now-GS.mg.drivePauseStart;GS.mg.drivePauseStart=0;}
+    const elapsed=now-GS.mg.driveStartT-GS.mg.drivePauseMs;
+    const pct=Math.min(1,elapsed/GS.mg.driveDuration);
+    GS.driveSpeed=Math.min(1,elapsed/1600); // visual ramp-up over 1.6s
+    GS.driveProgress=pct;
+    GS.mg.roadOffset=(GS.mg.roadOffset||0)+GS.driveSpeed*8;
+    GS.miles+=GS.driveSpeed*.04;
+    GS.fuel=Math.max(0,GS.fuel-.008*GS.driveSpeed);
+    if(GS.mg.eventIdx<GS.mg.eventPoints.length&&pct>=GS.mg.eventPoints[GS.mg.eventIdx]){const slot=GS.mg.eventIdx;GS.mg.eventIdx++;triggerRandomDriveEvent(slot===0);}
+    if(pct>=1){arrive();return;}
+    if(GS.frameCount%30===0) beep(80+Math.random()*10,.05,'sawtooth',.04);
+  }
+
+  drawRoad(GS.mg.roadOffset);
+
+  // Truck centered, cab on right (faces right = going forward correctly)
+  const bob=Math.sin(GS.t*.2)*2;
+  drawTruck(W/2-82,340+bob,.9);
+
+  // Dust from back of trailer (left side)
+  if(GS.frameCount%3===0&&!GS.awaitingChoice){
+    if(!GS.mg.dust) GS.mg.dust=[];
+    GS.mg.dust.push({x:W/2-70,y:380,vx:-2-Math.random()*2,vy:-1+Math.random()*2,life:20,r:3+Math.random()*4});
+  }
+  if(GS.mg.dust){
+    GS.mg.dust=GS.mg.dust.filter(d=>d.life>0);
+    GS.mg.dust.forEach(d=>{ctx.fillStyle=`rgba(150,120,80,${d.life/20})`;ctx.beginPath();ctx.arc(d.x,d.y,d.r,0,Math.PI*2);ctx.fill();d.x+=d.vx;d.y+=d.vy;d.life--;});
+  }
+
+  // Progress bar
+  const prog=GS.driveProgress/GS.driveTarget;
+  rect(40,H-28,W-80,11,'#222'); rect(40,H-28,(W-80)*prog,11,'#00ff88');
+  const from=GS.destinations[GS.currentDest], to=GS.destinations[GS.currentDest+1];
+  txt(from?from.name:'',42,H-30,'#888',9);
+  txt(to?to.name:'',W-42,H-30,'#ffd700',9,'right');
+
+  txt(`${Math.floor(GS.driveSpeed*55+25)} MPH`,W-8,30,'#0ff',11,'right');
+  if(GS.fuel<20&&Math.floor(GS.t*.1)%2) txt('⚠ LOW FUEL!',W/2,64,'#f00',15,'center');
+
+  updateHUD();
+}
+
+function arrive(){
+  // Guard: prevent double-call when driveProgress stays >= driveTarget after awaitingChoice clears
+  GS.driveProgress=0; GS.driveTarget=99999;
+  GS.currentDest++;
+  GS.day=Math.ceil(GS.day+1);
+
+  // Livermore: show visit message, then trigger LLNL
+  if(GS.currentDest===3){
+    GS.screen='map';
+    showHUD(); updateHUD();
+    showMsg(`Steven pulls off I-580 into Livermore. His old buddy August works out here at the National Ignition Facility — a real physicist with a big beard and a Patagonia hat. Might as well swing by and say hi.`,true,()=>{
+      GS.screen='minigame'; GS.minigame='llnl';
+    });
+    return;
+  }
+
+  // Albuquerque: chapter 2
+  if(GS.currentDest===8){
+    GS.money+=300; GS.chips=0;
+    GS.screen='map'; // stop drive rendering while message shows
+    successJingle();
+    showMsg(`CHIPS DELIVERED to Albuquerque! Final delivery bonus: +$300. The client weeps with gratitude. Your potato chip trucking career is COMPLETE.`,true,()=>{
+      showChapterBanner(2,'THE LONG ROAD HOME',"Steven points the rig north. Back to Bothell.",()=>{
+        startDrive(); // currentDest is 8, drives to dest 9 (return Bothell)
+      });
+    });
+    return;
+  }
+
+  // Return to Bothell (chapter 2 end → chapter 3)
+  if(GS.currentDest===9){
+    GS.screen='map'; // stop drive rendering while banner shows
+    showChapterBanner(3,'TRASH MAN EXTRAORDINAIRE',"Steven becomes Seattle's greatest garbage collector.",()=>{
+      GS.screen='minigame'; GS.minigame='trash';
+    });
+    return;
+  }
+
+  // Normal arrival
+  GS.screen='map';
+  GS.money+=150; GS.fuel=Math.min(100,GS.fuel+30);
+  successJingle();
+  showMsg(`Arrived at ${GS.destinations[GS.currentDest].name}! Delivery bonus +$150. Refueled. Day ${GS.day}.`,true);
+}
+
+// ============================================================
+// MINI-GAME: FROGGER — Lot Lizard Escape
+// ============================================================
+function initFrogger(){
+  GS.mg={
+    sx:W/2, sy:H-80, phase:'play',
+    chasers:[], obstacles:[], spawnTimer:0, score:0, lives:3,
+    truck:{x:W-140,y:H-80},
+  };
+  for(let i=0;i<3;i++) GS.mg.chasers.push({x:Math.random()*W,y:50+Math.random()*200});
+  for(let i=0;i<4;i++) GS.mg.obstacles.push({x:80+i*160,y:200+Math.random()*100,w:80,h:40});
+}
+function updateFrogger(){
+  const mg=GS.mg; if(mg.phase!=='play') return;
+  const spd=3;
+  if(keys['ArrowLeft']||keys['KeyA']) mg.sx=Math.max(20,mg.sx-spd);
+  if(keys['ArrowRight']||keys['KeyD']) mg.sx=Math.min(W-20,mg.sx+spd);
+  if(keys['ArrowUp']||keys['KeyW']) mg.sy=Math.max(40,mg.sy-spd);
+  if(keys['ArrowDown']||keys['KeyS']) mg.sy=Math.min(H-40,mg.sy+spd);
+  mg.chasers.forEach(c=>{
+    const dx=mg.sx-c.x, dy=mg.sy-c.y, dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist>0){c.x+=dx/dist*1.8; c.y+=dy/dist*1.8;}
+    if(dist<30&&mg.lives>0){mg.lives--;beep(200,.3,'square',.2);mg.sx=W/2;mg.sy=H-80;if(mg.lives<=0){mg.phase='lose';failJingle();}}
+  });
+  mg.spawnTimer++;
+  if(mg.spawnTimer>180){mg.spawnTimer=0;mg.chasers.push({x:Math.random()>.5?0:W,y:Math.random()*H});}
+  const tdx=mg.truck.x-mg.sx, tdy=mg.truck.y-mg.sy;
+  if(Math.sqrt(tdx*tdx+tdy*tdy)<50){mg.phase='win';mg.score=mg.lives*100;successJingle();GS.reputation+=10;}
+  mg.score+=.05;
+}
+function drawFrogger(){
+  const mg=GS.mg;
+  rect(0,0,W,H,'#2a2a2a');
+  for(let i=0;i<8;i++){ctx.strokeStyle='#444';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(i*110,0);ctx.lineTo(i*110,H);ctx.stroke();}
+  for(let i=0;i<5;i++){ctx.beginPath();ctx.moveTo(0,i*120);ctx.lineTo(W,i*120);ctx.stroke();}
+  mg.obstacles.forEach(o=>{rect(o.x,o.y,o.w,o.h,'#1a4a8a');rect(o.x+5,o.y+5,o.w-10,12,'#aaddff');});
+  drawTruck(mg.truck.x-90,mg.truck.y-22,.65);
+  const pulse=Math.sin(GS.t*.1)*4;
+  rect(mg.truck.x-12+pulse/2,mg.truck.y-12+pulse/2,24-pulse,24-pulse,'rgba(0,255,136,0.3)');
+  txt('ESCAPE!',mg.truck.x,mg.truck.y-30,'#00ff88',9,'center');
+  const lotCols=['#ff69b4','#ff1493','#ff00ff','#ff6347'];
+  mg.chasers.forEach((c,i)=>{const col=lotCols[i%4];rect(c.x-6,c.y-20,12,20,col);rect(c.x-6,c.y-30,12,12,'#f0c8a0');});
+  drawSteven(mg.sx,mg.sy,1.1,GS.t);
+  rect(0,0,W,34,'rgba(0,0,0,0.8)');
+  txt('LOT LIZARD ESCAPE!',W/2,22,'#ffd700',15,'center');
+  txt(`❤️ ${'♥ '.repeat(mg.lives)}`,10,22,'#e94560',12);
+  txt(`SCORE: ${Math.floor(mg.score)}`,W-10,22,'#00ff88',12,'right');
+  txt('WASD/Arrows: move. Reach your truck!',W/2,H-6,'#aaa',9,'center');
+  if(mg.phase==='win'){overlay();txt('YOU ESCAPED!',W/2,H/2-28,'#00ff88',28,'center');txt('+10 Reputation',W/2,H/2+10,'#ffd700',14,'center');txt('ENTER to continue',W/2,H/2+45,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;exitMinigame(true);}}
+  if(mg.phase==='lose'){overlay();txt('CAUGHT!',W/2,H/2-28,'#e94560',28,'center');txt('Steven is mortified.',W/2,H/2+10,'#aaa',14,'center');txt('ENTER to continue',W/2,H/2+45,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;GS.reputation-=15;exitMinigame(false);}}
+}
+
+// ============================================================
+// MINI-GAME: TURKEY HUNT
+// ============================================================
+function initHunt(){
+  GS.mg={phase:'play',turkeys:[],sight:{x:W/2,y:H/2},shots:4,hit:0,timer:720,spawnTimer:0,scored:0,particles:[]};
+  spawnTurkey(); spawnTurkey();
+}
+function spawnTurkey(){
+  const side=Math.random()>.5?1:-1;
+  GS.mg.turkeys.push({x:side>0?-50:W+50,y:200+Math.random()*200,vx:side*(1+Math.random()*2),vy:(Math.random()-.5)*.5,frame:0,alive:true});
+}
+function updateHunt(){
+  const mg=GS.mg; if(mg.phase!=='play') return;
+  // Mouse aiming (primary) — always tracks the cursor
+  mg.sight.x=Math.max(20,Math.min(W-20,mouse.x));
+  mg.sight.y=Math.max(20,Math.min(H-60,mouse.y));
+  // Keyboard fallback (WASD / arrows move sight if mouse isn't in play zone)
+  const spd=7;
+  if(keys['ArrowLeft']||keys['KeyA']) mg.sight.x=Math.max(20,mg.sight.x-spd);
+  if(keys['ArrowRight']||keys['KeyD']) mg.sight.x=Math.min(W-20,mg.sight.x+spd);
+  if(keys['ArrowUp']||keys['KeyW']) mg.sight.y=Math.max(20,mg.sight.y-spd);
+  if(keys['ArrowDown']||keys['KeyS']) mg.sight.y=Math.min(H-60,mg.sight.y+spd);
+  if(kd['Space']||kd['Enter']||kd['MouseLeft']){kd['Space']=false;kd['Enter']=false;kd['MouseLeft']=false;if(mg.shots>0){mg.shots--;beep(180,.15,'sawtooth',.2);beep(120,.2,'sawtooth',.15);mg.turkeys.forEach(t=>{if(!t.alive) return;const dx=t.x-mg.sight.x,dy=t.y-mg.sight.y;if(Math.sqrt(dx*dx+dy*dy)<40){t.alive=false;mg.hit++;mg.scored+=100;successJingle();for(let i=0;i<12;i++) mg.particles.push({x:t.x,y:t.y,vx:(Math.random()-.5)*5,vy:-Math.random()*5,life:30,col:'#ff4'});}});}}
+  mg.turkeys.forEach(t=>{if(!t.alive) return;t.x+=t.vx;t.y+=t.vy;t.frame=(t.frame+.15)%4;if(Math.random()<.02) t.vy=(Math.random()-.5)*2;if(t.x<-100||t.x>W+100) t.vx*=-1;t.y=Math.max(150,Math.min(H-60,t.y));});
+  mg.spawnTimer++;
+  if(mg.spawnTimer>200&&mg.turkeys.filter(t=>t.alive).length<3){mg.spawnTimer=0;spawnTurkey();}
+  mg.particles=mg.particles.filter(p=>p.life>0);
+  mg.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.2;p.life--;});
+  mg.timer--;
+  if(mg.timer<=0||mg.shots<=0){mg.phase=mg.hit>0?'win':'lose';if(mg.phase==='win') successJingle(); else failJingle();}
+}
+function drawHunt(){
+  const mg=GS.mg;
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#1a4a1a');sky.addColorStop(.5,'#2a6a2a');sky.addColorStop(1,'#3a5a1a');
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+  for(let i=0;i<8;i++) drawTree(i*110+50,280,1.1+i%3*.3);
+  rect(0,H-80,W,80,'#2a5a1a'); rect(0,H-82,W,4,'#3a7a2a');
+  mg.particles.forEach(p=>{ctx.fillStyle=p.col;ctx.fillRect(p.x,p.y,4,4);});
+  mg.turkeys.forEach(t=>{
+    if(!t.alive) return;
+    const bob=Math.sin(t.frame*Math.PI*2)*3;
+    rect(t.x-12,t.y-10+bob,24,18,'#8B4513');
+    rect(t.x-5,t.y-22+bob,12,14,'#c8a850');
+    rect(t.x+5,t.y-16+bob,6,4,'#ff6600');
+    rect(t.x+3,t.y-14+bob,5,8,'#cc0000');
+    rect(t.x-18,t.y-15+bob,8,5,'#8B0000');
+    rect(t.x-5,t.y+8+bob,4,10,'#c8a850'); rect(t.x+3,t.y+8+bob,4,10,'#c8a850');
+  });
+  const {x,y}=mg.sight;
+  ctx.strokeStyle='rgba(255,0,0,0.8)'; ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(x-20,y);ctx.lineTo(x-8,y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x+8,y);ctx.lineTo(x+20,y);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x,y-20);ctx.lineTo(x,y-8);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x,y+8);ctx.lineTo(x,y+20);ctx.stroke();
+  ctx.strokeStyle='rgba(255,0,0,0.4)'; ctx.lineWidth=1;
+  ctx.beginPath();ctx.arc(x,y,20,0,Math.PI*2);ctx.stroke();
+  rect(0,0,W,42,'rgba(0,0,0,0.82)');
+  txt('TURKEY HUNT!',W/2,20,'#ffd700',14,'center');
+  txt(`TIME: ${Math.ceil(mg.timer/60)}s`,W-8,20,'#0ff',11,'right');
+  txt(`SHOTS LEFT: ${mg.shots}`,8,20,'#e94560',11);
+  txt(`HITS: ${mg.hit}`,8,36,'#00ff88',11);
+  txt('Mouse: aim  |  Click or SPACE: fire  |  WASD/Arrows: fine-tune aim',W/2,H-6,'#aaa',9,'center');
+  if(mg.phase==='win'){overlay();txt('GOBBLE GOBBLE!',W/2,H/2-35,'#ffd700',26,'center');txt(`Bagged ${mg.hit} turkey(s)! Score: ${mg.scored}`,W/2,H/2+5,'#fff',14,'center');txt('ENTER to continue',W/2,H/2+50,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;GS.flags.huntingDone=true;exitMinigame(true);}}
+  if(mg.phase==='lose'){overlay();txt('MISSED!',W/2,H/2-30,'#e94560',26,'center');txt('The turkeys mock Steven loudly.',W/2,H/2+8,'#aaa',14,'center');txt('ENTER to continue',W/2,H/2+48,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;exitMinigame(false);}}
+}
+
+// ============================================================
+// MINI-GAME: LLNL / NIF
+// ============================================================
+function initLLNL(){
+  GS.mg={phase:'cutscene',timer:0,laserCharge:0,buttons:[{x:160,y:290,pressed:false,label:'LASER ON'},{x:380,y:290,pressed:false,label:'IGNITE'},{x:600,y:290,pressed:false,label:'AMPLIFY'}],stevenX:120,stevenY:360,particles:[]};
+}
+function updateLLNL(){
+  const mg=GS.mg; mg.timer++;
+  if(mg.phase==='cutscene'){if(mg.timer>220){mg.phase='panel';mg.timer=0;}return;}
+  if(mg.phase==='panel'){
+    if(keys['ArrowLeft']||keys['KeyA']) mg.stevenX=Math.max(30,mg.stevenX-2);
+    if(keys['ArrowRight']||keys['KeyD']) mg.stevenX=Math.min(W-30,mg.stevenX+2);
+    if(kd['Space']||kd['Enter']){
+      kd['Space']=false;kd['Enter']=false;
+      mg.buttons.forEach(b=>{if(Math.abs(mg.stevenX-b.x)<45&&!b.pressed){b.pressed=true;mg.laserCharge+=34;beep(440+mg.laserCharge*2,.15,'square',.15);}});
+    }
+    if(mg.laserCharge>=100){mg.phase='explosion';mg.timer=0;for(let i=0;i<50;i++) mg.particles.push({x:W/2,y:H/2,vx:(Math.random()-.5)*12,vy:(Math.random()-.5)*12,life:70,col:`hsl(${Math.random()*60},100%,70%)`});}
+  }
+  if(mg.phase==='explosion'){
+    mg.particles=mg.particles.filter(p=>p.life>0);
+    mg.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.1;p.life--;p.vx*=.98;});
+    if(mg.timer>200&&mg.particles.length<5) mg.phase='aftermath';
+  }
+  if(mg.phase==='aftermath'&&(kd['Enter']||kd['Space'])){
+    kd['Enter']=false;kd['Space']=false;
+    GS.flags.gainedPowers=true; GS.flags.llnlVisited=true;
+    // Continue journey from Livermore (dest 3) to LA
+    GS.screen='map'; GS.minigame=null; _lastMG=null;
+    GS.money+=50; GS.fuel=Math.min(100,GS.fuel+20);
+    showHUD(); updateHUD();
+    showMsg('★ TELEKINETIC TRASH POWERS ACQUIRED! ★ August: "Sorry about the fusion accident." He hands you $50 and some chips. Continue to Los Angeles!',true);
+  }
+}
+function drawLLNL(){
+  const mg=GS.mg;
+  rect(0,0,W,H,'#050510');
+  rect(0,0,W,30,'rgba(0,0,0,.8)');
+  txt('NATIONAL IGNITION FACILITY — LIVERMORE, CA',W/2,20,'#00aaff',11,'center');
+  if(mg.phase==='cutscene'){
+    rect(0,200,W,H-200,'#0a0a2a');
+    rect(100,220,200,150,'#0a0a2a'); rectOutline(100,220,200,150,'#00aaff',2);
+    rect(440,220,200,150,'#0a0a2a'); rectOutline(440,220,200,150,'#00aaff',2);
+    txt('FUSION CHAMBER',200,295,'#00ff88',10,'center'); txt('LASER ARRAY',540,295,'#00aaff',10,'center');
+    drawSteven(180,380,1.4,mg.timer); drawAugust(520,380,1.4);
+    txt('AUGUST: "DON\'T touch anything!"',420,345,'#ffd700',10);
+    txt('STEVEN: "What does THIS do?"',100,345,'#00ff88',10);
+    const pct=mg.timer/220;
+    txt(`Loading NIF systems... ${Math.floor(pct*100)}%`,W/2,H-16,'#0ff',10,'center');
+  }
+  if(mg.phase==='panel'){
+    rect(0,250,W,200,'#0a0a18'); rectOutline(0,250,W,200,'#0044aa',2);
+    txt('NIF CONTROL PANEL',W/2,272,'#00aaff',13,'center');
+    txt('Walk to each button and press SPACE',W/2,490,'#aaa',10,'center');
+    rect(210,305,380,18,'#050520'); rect(210,305,mg.laserCharge*3.8,18,'#0ff');
+    txt(`LASER CHARGE: ${Math.floor(mg.laserCharge)}%`,W/2,318,'#0ff',10,'center');
+    mg.buttons.forEach(b=>{
+      const col=b.pressed?'#00ff88':'#e94560';
+      rect(b.x-44,b.y-18,88,36,b.pressed?'#004400':'#440000');
+      rectOutline(b.x-44,b.y-18,88,36,col,2);
+      txt(b.label,b.x,b.y+4,col,10,'center');
+    });
+    drawSteven(mg.stevenX,400,1.1,mg.timer);
+    if(mg.laserCharge>34){ctx.strokeStyle='rgba(0,255,255,0.5)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(160,290);ctx.lineTo(W/2,190);ctx.stroke();}
+    if(mg.laserCharge>67){ctx.strokeStyle='rgba(0,180,255,0.7)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(600,290);ctx.lineTo(W/2,190);ctx.stroke();}
+  }
+  if(mg.phase==='explosion'){
+    const alpha=Math.min(1,(40-Math.abs(mg.timer-40))/40);
+    rect(0,0,W,H,`rgba(200,255,255,${alpha*.8})`);
+    mg.particles.forEach(p=>{ctx.fillStyle=p.col;ctx.fillRect(p.x,p.y,6,6);});
+    if(mg.timer>70){txt('SOMETHING HAS GONE TERRIBLY WRONG',W/2,H/2,'#f00',17,'center');txt('(and wonderfully right)',W/2,H/2+28,'#ffd700',13,'center');}
+  }
+  if(mg.phase==='aftermath'){
+    rect(0,200,W,H-200,'#0a0a2a');
+    rect(120,250,W-240,150,'#050510');
+    drawAugust(610,368,1.4);
+    drawSteven(240,368,1.4,0);
+    for(let i=0;i<6;i++){const a=GS.t*.08+i*(Math.PI/3);ctx.fillStyle='rgba(80,200,80,0.85)';ctx.fillRect(240+Math.cos(a)*50-4,368+Math.sin(a)*24-4,8,8);}
+    txt('AUGUST: "You absorbed fusion energy...',545,318,'#ffd700',10);
+    txt('and the entire dumpster outside."',545,334,'#fff',10);
+    txt('STEVEN: "I can feel the trash..."',120,318,'#00ff88',10);
+    txt('"I AM the trash."',120,334,'#fff',10);
+    txt('"Wait, that came out wrong."',120,350,'#fff',10);
+    txt('★ TELEKINETIC TRASH POWERS ACQUIRED! ★',W/2,H-44,'#00ff88',13,'center');
+    if(Math.floor(GS.t*.08)%2) txt('Press ENTER to continue',W/2,H-22,'#ffd700',11,'center');
+  }
+}
+
+// ============================================================
+// MINI-GAME: NINJA CHIP HEIST
+// ============================================================
+function initNinja(){
+  GS.mg={phase:'play',sx:120,sy:H-80,ninjas:[],score:0,health:100,spawnTimer:0,timer:1200,invincible:0,combo:0,particles:[]};
+  for(let i=0;i<3;i++) spawnNinja();
+}
+function spawnNinja(){
+  GS.mg.ninjas.push({x:Math.random()>.5?W+50:-50,y:200+Math.random()*200,hp:3,attackTimer:0,frame:0,dead:false});
+}
+function updateNinja(){
+  const mg=GS.mg; if(mg.phase!=='play') return;
+  const spd=4;
+  if(keys['ArrowLeft']||keys['KeyA']) mg.sx=Math.max(20,mg.sx-spd);
+  if(keys['ArrowRight']||keys['KeyD']) mg.sx=Math.min(W-20,mg.sx+spd);
+  if(keys['ArrowUp']||keys['KeyW']) mg.sy=Math.max(120,mg.sy-spd);
+  if(keys['ArrowDown']||keys['KeyS']) mg.sy=Math.min(H-40,mg.sy+spd);
+  if((kd['Space']||kd['Enter'])&&!GS.awaitingChoice){
+    kd['Space']=false;kd['Enter']=false;
+    beep(660,.05,'square',.2); beep(440,.1,'square',.15);
+    let hit=false;
+    mg.ninjas.forEach(n=>{if(n.dead) return;const dx=n.x-mg.sx,dy=n.y-mg.sy;if(Math.sqrt(dx*dx+dy*dy)<60){n.hp--;for(let i=0;i<8;i++) mg.particles.push({x:n.x,y:n.y,vx:(Math.random()-.5)*6,vy:-Math.random()*5,life:20,col:'#f00'});if(n.hp<=0){n.dead=true;mg.score+=100;mg.combo++;successJingle();}hit=true;}});
+    if(!hit) mg.combo=0;
+  }
+  mg.ninjas.forEach(n=>{if(n.dead) return;const dx=mg.sx-n.x,dy=mg.sy-n.y,dist=Math.sqrt(dx*dx+dy*dy);if(dist>80){n.x+=dx/dist*2.5;n.y+=dy/dist*2.5;}n.frame=(n.frame+.1)%4;n.attackTimer++;if(n.attackTimer>90&&dist<80&&mg.invincible<=0){n.attackTimer=0;mg.health-=15;mg.invincible=30;beep(200,.2,'sawtooth',.2);if(mg.health<=0){mg.phase='lose';failJingle();}}});
+  if(mg.invincible>0) mg.invincible--;
+  mg.spawnTimer++;
+  if(mg.spawnTimer>350&&mg.ninjas.filter(n=>!n.dead).length<5){mg.spawnTimer=0;spawnNinja();}
+  mg.particles=mg.particles.filter(p=>p.life>0);
+  mg.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.3;p.life--;});
+  mg.timer--;
+  if(mg.timer<=0){mg.phase='win';successJingle();GS.flags.ninjasDefeated=true;}
+}
+function drawNinja_mg(){
+  const mg=GS.mg;
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#0a0a20');sky.addColorStop(.6,'#1a2a4a');sky.addColorStop(1,'#2a3a2a');
+  ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+  drawStars(30); drawMountains(255);
+  rect(0,360,W,H-360,'#333');
+  rect(0,356,W,7,'#555');
+  for(let i=0;i<10;i++){const rx=((i*120+GS.t*2)%900+900)%900;rect(rx,398,60,6,'#ffd700');}
+  for(let i=0;i<3;i++){rect(180+i*160,348,30,20,'#ffd700');txt('CHIPS',195+i*160,362,'#e63946',8,'center');}
+  mg.particles.forEach(p=>{ctx.fillStyle=p.col;ctx.fillRect(p.x,p.y,4,4);});
+  mg.ninjas.forEach(n=>{
+    if(n.dead) return;
+    const bob=Math.sin(n.frame*Math.PI*2)*3;
+    rect(n.x-10,n.y-12+bob,20,18,'#111');
+    rect(n.x-8,n.y-22+bob,16,12,'#1a1a1a');
+    rect(n.x-4,n.y-18+bob,4,4,'#e00'); rect(n.x+2,n.y-18+bob,4,4,'#e00');
+    ctx.strokeStyle='#aaa';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(n.x+10,n.y-8+bob);ctx.lineTo(n.x+28,n.y-24+bob);ctx.stroke();
+    rect(n.x-6,n.y+6+bob,6,12,'#111'); rect(n.x+2,n.y+6+bob,6,12,'#111');
+    for(let i=0;i<n.hp;i++) rect(n.x-8+i*7,n.y-30+bob,5,3,'#e94560');
+  });
+  if(mg.invincible<=0||Math.floor(GS.t*.2)%2) drawSteven(mg.sx,mg.sy,1.2,GS.t);
+  rect(0,0,W,34,'rgba(0,0,0,0.8)');
+  txt('NINJA CHIP HEIST!',W/2,22,'#ffd700',15,'center');
+  txt(`HP: ${mg.health}%`,10,22,'#e94560',12);
+  txt(`SCORE: ${mg.score}`,W-10,22,'#00ff88',12,'right');
+  txt(`TIME: ${Math.ceil(mg.timer/60)}s`,300,22,'#0ff',12);
+  if(mg.combo>1) txt(`${mg.combo}x COMBO!`,W/2,60,'#ffd700',17,'center');
+  rect(0,34,W*(mg.health/100),5,'#e94560');
+  txt('WASD: move  |  SPACE: punch',W/2,H-6,'#aaa',9,'center');
+  if(mg.phase==='win'){overlay();txt('NINJAS DEFEATED!',W/2,H/2-35,'#ffd700',26,'center');txt('The potato chips are SAFE!',W/2,H/2+5,'#fff',14,'center');txt('ENTER to continue',W/2,H/2+48,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;exitMinigame(true);}}
+  if(mg.phase==='lose'){overlay();txt('CHIPS STOLEN!',W/2,H/2-30,'#e94560',24,'center');txt('A dark day for potato lovers.',W/2,H/2+8,'#aaa',14,'center');txt('ENTER to continue',W/2,H/2+48,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;GS.chips=Math.max(0,GS.chips-100);exitMinigame(false);}}
+}
+
+// ============================================================
+// MINI-GAME: CHP CHASE (NEW)
+// ============================================================
+function initCHP(){
+  const laneY=[230,320,410];
+  GS.mg={
+    phase:'play', lane:1, chpLane:2,
+    chpX:680, stevenX:160,
+    bribeMoney:0, obstacles:[], moneyBags:[],
+    timer:2700, chpSlow:0, chpSpeed:1.8, spawnTimer:0,
+    laneY, score:0,
+  };
+  for(let i=0;i<4;i++) GS.mg.obstacles.push({x:350+i*140,lane:Math.floor(Math.random()*3),type:'cone'});
+  for(let i=0;i<5;i++) GS.mg.moneyBags.push({x:300+i*110,lane:Math.floor(Math.random()*3),collected:false});
+}
+function updateCHP(){
+  const mg=GS.mg; if(mg.phase!=='play') return;
+  if(kd['ArrowUp']||kd['KeyW']){if(mg.lane>0){mg.lane--;beep(660,.05,'square',.1);}kd['ArrowUp']=false;kd['KeyW']=false;}
+  if(kd['ArrowDown']||kd['KeyS']){if(mg.lane<2){mg.lane++;beep(440,.05,'square',.1);}kd['ArrowDown']=false;kd['KeyS']=false;}
+  if(kd['Space']){kd['Space']=false;if(GS.chips>=20){GS.chips-=20;mg.chpSlow=200;mg.obstacles.push({x:mg.stevenX+80,lane:mg.lane,type:'chips',life:250});beep(880,.1,'square',.15);beep(440,.2,'square',.1);}}
+  // scroll everything left
+  const scroll=3.5;
+  mg.obstacles.forEach(o=>{o.x-=scroll;if(o.life!==undefined) o.life--;});
+  mg.moneyBags.forEach(b=>b.x-=scroll);
+  mg.obstacles=mg.obstacles.filter(o=>o.x>-60&&(o.life===undefined||o.life>0));
+  // collect money
+  mg.moneyBags.forEach(b=>{if(!b.collected&&b.lane===mg.lane&&Math.abs(b.x-mg.stevenX)<28){b.collected=true;mg.bribeMoney+=100;mg.score+=100;beep(660,.1,'square',.12);}});
+  // Steven hits obstacle
+  const hitObs=mg.obstacles.some(o=>o.type!=='chips'&&o.lane===mg.lane&&Math.abs(o.x-mg.stevenX)<22);
+  if(hitObs){GS.health=Math.max(0,GS.health-.3);mg.chpX-=.8;}
+  // CHP movement
+  if(mg.chpSlow>0){mg.chpSlow--;} else {
+    mg.spawnTimer++;
+    if(mg.spawnTimer>80){mg.spawnTimer=0;if(mg.chpLane<mg.lane) mg.chpLane++; else if(mg.chpLane>mg.lane) mg.chpLane--;}
+    const blocked=mg.obstacles.some(o=>o.lane===mg.chpLane&&o.x>mg.stevenX&&o.x<mg.chpX);
+    mg.chpX-=blocked?.4:mg.chpSpeed;
+    mg.chpSpeed=Math.min(3.5,1.8+(2700-mg.timer)/800);
+  }
+  // spawn more
+  if(Math.random()<.018) mg.obstacles.push({x:W+60,lane:Math.floor(Math.random()*3),type:'cone'});
+  if(Math.random()<.009&&mg.moneyBags.filter(b=>!b.collected).length<7) mg.moneyBags.push({x:W+60,lane:Math.floor(Math.random()*3),collected:false});
+  mg.timer--;
+  if(mg.bribeMoney>=800||mg.timer<=0){mg.phase='win';successJingle();}
+  if(mg.chpX<=mg.stevenX+18){mg.phase='lose';failJingle();}
+}
+function drawCHP_mg(){
+  const mg=GS.mg;
+  // California highway background
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#0a0a2e');sky.addColorStop(.35,'#1a3a6e');sky.addColorStop(.5,'#e87c3e');sky.addColorStop(.65,'#c8501a');sky.addColorStop(1,'#222');
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#c8a820';
+  for(let i=0;i<5;i++){ctx.beginPath();ctx.arc(i*200+80,175,120,0,Math.PI);ctx.fill();}
+  for(let i=0;i<4;i++) drawPalm(i*210+90,240);
+  rect(0,210,W,H-210,'#3a3a2a');
+  // 3 lane roads
+  const lY=mg.laneY;
+  lY.forEach(ly=>{
+    rect(0,ly-32,W,64,'#2e2e2e');
+    rect(0,ly+30,W,4,'#555');
+    rect(0,ly-34,W,4,'#555');
+    for(let d=0;d<8;d++){const dx=((d*120-GS.t*4)%900+900)%900;rect(dx,ly-4,70,8,'#ffd700');}
+  });
+  // Money bags
+  mg.moneyBags.forEach(b=>{if(b.collected) return;const by=lY[b.lane];rect(b.x-8,by-14,16,20,'#1a6a1a');txt('$',b.x-4,by+4,'#ffd700',12);});
+  // Obstacles
+  mg.obstacles.forEach(o=>{
+    if(o.x<-25||o.x>W+25) return;
+    const oy=lY[o.lane];
+    if(o.type==='chips'){ctx.fillStyle='#c8a820';ctx.beginPath();ctx.ellipse(o.x,oy,24,10,0,0,Math.PI*2);ctx.fill();txt('🥔',o.x-8,oy+5,'#fff',12);}
+    else{rect(o.x-12,oy-14,24,28,'#ff6600');txt('⚠',o.x-6,oy+6,'#fff',14);}
+  });
+  // CHP car
+  const cy=lY[mg.chpLane];
+  const flash=Math.floor(GS.t*.15)%2;
+  rect(mg.chpX-24,cy-20,48,40,'#1a44cc');
+  rect(mg.chpX-18,cy-14,36,18,'#aaddff');
+  rect(mg.chpX-10,cy-24,8,6,flash?'#f00':'#800');
+  rect(mg.chpX+4,cy-24,8,6,flash?'#00f':'#008');
+  txt('CHP',mg.chpX-10,cy+8,'#fff',9);
+  if(mg.chpSlow>0){txt('NOM NOM',mg.chpX-18,cy-30,'#ffd700',9);txt('CHIPS!',mg.chpX-12,cy-42,'#ffd700',9);}
+  // Steven's truck (left side)
+  drawTruck(mg.stevenX-100,lY[mg.lane]-24,.65);
+  // Gap meter
+  const gapPct=Math.max(0,(mg.chpX-mg.stevenX-18)/(W-mg.stevenX-18));
+  rect(W/2-160,8,320,14,'#111');
+  rect(W/2-160,8,320*gapPct,14,gapPct>.5?'#00ff88':gapPct>.25?'#ffd700':'#e94560');
+  txt('◄ GAP ►',W/2,7,'#888',8,'center');
+  // HUD
+  rect(0,0,W,34,'rgba(0,0,0,0.82)');
+  txt('CHP CHASE!',W/2,22,'#e94560',15,'center');
+  txt(`BRIBE: $${mg.bribeMoney}/$800`,10,22,'#00ff88',10);
+  txt(`TIME: ${Math.ceil(mg.timer/60)}s`,W-10,22,'#0ff',10,'right');
+  txt('W/S: switch lane  |  SPACE: throw chips (-20 lbs)',W/2,H-6,'#aaa',9,'center');
+  if(mg.phase==='win'){overlay();if(mg.bribeMoney>=800){txt('BRIBED!',W/2,H/2-38,'#ffd700',28,'center');txt('"Officer, please accept these chips."',W/2,H/2+2,'#00ff88',13,'center');txt('Officer accepts. No ticket. No questions.',W/2,H/2+24,'#aaa',12,'center');}else{txt('ESCAPED!',W/2,H/2-38,'#00ff88',28,'center');txt('You lost them in the desert dust!',W/2,H/2+2,'#fff',13,'center');}txt('ENTER to continue',W/2,H/2+65,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;GS.money+=Math.floor(mg.bribeMoney/4);exitMinigame(true);}}
+  if(mg.phase==='lose'){overlay();txt('PULLED OVER!',W/2,H/2-38,'#e94560',26,'center');txt('CHP: "Sir, do you know how fast you were going?"',W/2,H/2+2,'#fff',11,'center');txt('Steven: "Fast enough to deliver America\'s chips!"',W/2,H/2+22,'#ffd700',11,'center');txt('$200 fine',W/2,H/2+50,'#e94560',14,'center');txt('ENTER to continue',W/2,H/2+78,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;GS.money=Math.max(0,GS.money-200);exitMinigame(false);}}
+}
+
+// ============================================================
+// MINI-GAME: UTAH — MISSIONARY ESCAPE
+// ============================================================
+function initMormon(){
+  GS.mg={phase:'play',lane:1,sx:120,timer:1800,missionaries:[],pamphlets:[],lives:3,spawnTimer:0,laneY:[190,310,430]};
+  for(let i=0;i<2;i++) spawnMissionary();
+}
+function spawnMissionary(){
+  GS.mg.missionaries.push({x:W+80,lane:Math.floor(Math.random()*3),speed:2+Math.random()*1.5,frame:0,pamphletTimer:100+Math.random()*60});
+}
+function updateMormon(){
+  const mg=GS.mg; if(mg.phase!=='play') return;
+  if(kd['ArrowUp']||kd['KeyW']){if(mg.lane>0){mg.lane--;beep(660,.05,'square',.1);}kd['ArrowUp']=false;kd['KeyW']=false;}
+  if(kd['ArrowDown']||kd['KeyS']){if(mg.lane<2){mg.lane++;beep(440,.05,'square',.1);}kd['ArrowDown']=false;kd['KeyS']=false;}
+  mg.missionaries.forEach(m=>{
+    m.x-=m.speed; m.frame=(m.frame+.12)%4; m.pamphletTimer--;
+    if(m.pamphletTimer<=0){m.pamphletTimer=90+Math.random()*60;mg.pamphlets.push({x:m.x-20,y:mg.laneY[m.lane],vx:-4,life:70});}
+    if(m.lane===mg.lane&&Math.abs(m.x-mg.sx)<32&&mg.lives>0){mg.lives--;beep(200,.3,'square',.2);m.x=W+120;if(mg.lives<=0){mg.phase='lose';failJingle();}}
+  });
+  mg.missionaries=mg.missionaries.filter(m=>m.x>-80);
+  mg.pamphlets.forEach(p=>{p.x+=p.vx;p.life--;});
+  mg.pamphlets=mg.pamphlets.filter(p=>p.life>0);
+  mg.pamphlets.forEach(p=>{if(Math.abs(p.x-mg.sx)<18&&Math.abs(p.y-mg.laneY[mg.lane])<22&&mg.lives>0){mg.lives--;beep(200,.2,'square',.15);p.life=0;if(mg.lives<=0){mg.phase='lose';failJingle();}}});
+  mg.spawnTimer++;
+  if(mg.spawnTimer>160&&mg.missionaries.length<4){mg.spawnTimer=0;spawnMissionary();}
+  mg.timer--;
+  if(mg.timer<=0){mg.phase='win';successJingle();}
+}
+function drawMormon_mg(){
+  const mg=GS.mg;
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#1a3a7a');sky.addColorStop(.5,'#4a6aaa');sky.addColorStop(1,'#c8a060');
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+  drawMountains(235,'#8a7a5a');
+  rect(0,H-90,W,90,'#c8a060');
+  mg.laneY.forEach(ly=>{
+    rect(0,ly-28,W,56,'#3a3a3a');
+    rect(0,ly+26,W,4,'#888'); rect(0,ly-30,W,4,'#888');
+    for(let d=0;d<8;d++){const dx=((d*120-GS.t*3)%900+900)%900;rect(dx,ly-4,60,8,'#ffd700');}
+  });
+  mg.missionaries.forEach(m=>{
+    const my=mg.laneY[m.lane], bob=Math.sin(m.frame*Math.PI*2)*3;
+    ctx.strokeStyle='#999';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(m.x-10,my+20,12,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.arc(m.x+10,my+20,12,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(m.x-10,my+20);ctx.lineTo(m.x,my+6);ctx.lineTo(m.x+10,my+20);ctx.stroke();
+    rect(m.x-7,my-22+bob,14,22,'#eeeeee');
+    rect(m.x-2,my-24+bob,4,6,'#111');
+    rect(m.x-6,my-34+bob,12,13,'#f0c8a0');
+    rect(m.x-6,my-42+bob,12,9,'#111');
+    txt('📖',m.x-7,my-14+bob,'#000',11);
+  });
+  mg.pamphlets.forEach(p=>{rect(p.x-7,p.y-5,14,9,'#fffde0');ctx.strokeStyle='#aaa';ctx.lineWidth=1;ctx.strokeRect(p.x-7,p.y-5,14,9);txt('!',p.x-2,p.y+3,'#00a',8);});
+  drawSteven(mg.sx,mg.laneY[mg.lane]-18,1.1,GS.t);
+  rect(0,0,W,34,'rgba(0,0,0,0.82)');
+  txt('MISSIONARY ESCAPE!',W/2,22,'#ffd700',15,'center');
+  txt(`❤️ ${'♥ '.repeat(mg.lives)}`,10,22,'#e94560',12);
+  txt(`TIME: ${Math.ceil(mg.timer/60)}s`,W-10,22,'#0ff',12,'right');
+  txt('↑↓ or W/S: switch lanes  |  Dodge the missionaries & pamphlets!',W/2,H-6,'#aaa',9,'center');
+  if(mg.phase==='win'){overlay();txt('ESCAPED!',W/2,H/2-38,'#00ff88',30,'center');txt('"I respect your persistence, elders."',W/2,H/2+5,'#ffd700',13,'center');txt('+10 Reputation',W/2,H/2+30,'#00ff88',12,'center');txt('ENTER to continue',W/2,H/2+65,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;GS.reputation+=10;exitMinigame(true);}}
+  if(mg.phase==='lose'){overlay();txt('PAMPHLETTED!',W/2,H/2-35,'#e94560',26,'center');txt('"Elder Johnson: We\'ll save you yet, brother."',W/2,H/2+5,'#fff',13,'center');txt('ENTER to continue',W/2,H/2+48,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;exitMinigame(false);}}
+}
+
+// ============================================================
+// MINI-GAME: NEW MEXICO — ALIEN FIGHT
+// ============================================================
+function initAlien(){
+  GS.mg={phase:'play',sx:W/2,sy:390,aliens:[],lasers:[],score:0,health:100,timer:1800,invincible:0,spawnTimer:0,particles:[],punchFlash:0};
+  for(let i=0;i<3;i++) spawnAlien();
+}
+function spawnAlien(){
+  GS.mg.aliens.push({x:100+Math.random()*(W-200),y:-50,vy:.8+Math.random()*.6,hp:3,shootTimer:80+Math.random()*80,frame:0,dead:false});
+}
+function updateAlien(){
+  const mg=GS.mg; if(mg.phase!=='play') return;
+  const spd=4;
+  if(keys['ArrowLeft']||keys['KeyA']) mg.sx=Math.max(30,mg.sx-spd);
+  if(keys['ArrowRight']||keys['KeyD']) mg.sx=Math.min(W-30,mg.sx+spd);
+  if(keys['ArrowUp']||keys['KeyW']) mg.sy=Math.max(200,mg.sy-spd);
+  if(keys['ArrowDown']||keys['KeyS']) mg.sy=Math.min(H-40,mg.sy+spd);
+  if((kd['Space']||kd['Enter'])&&!GS.awaitingChoice){
+    kd['Space']=false;kd['Enter']=false; mg.punchFlash=10;
+    beep(600,.08,'square',.18);
+    mg.aliens.forEach(a=>{if(a.dead) return;const dx=a.x-mg.sx,dy=a.y-mg.sy;if(Math.sqrt(dx*dx+dy*dy)<72){a.hp--;for(let i=0;i<6;i++) mg.particles.push({x:a.x,y:a.y,vx:(Math.random()-.5)*5,vy:-Math.random()*4,life:22,col:'#0f0'});if(a.hp<=0){a.dead=true;mg.score+=150;successJingle();}}});
+  }
+  if(mg.punchFlash>0) mg.punchFlash--;
+  mg.aliens.forEach(a=>{
+    if(a.dead) return;
+    a.y+=a.vy; a.frame=(a.frame+.08)%4;
+    a.x+=Math.sin(GS.t*.05+a.y*.02)*1.5;
+    a.shootTimer--;
+    if(a.shootTimer<=0&&a.y>0&&a.y<H-60){
+      a.shootTimer=70+Math.random()*80;
+      const dx=mg.sx-a.x,dy=mg.sy-a.y,dist=Math.sqrt(dx*dx+dy*dy);
+      mg.lasers.push({x:a.x,y:a.y,vx:dx/dist*5,vy:dy/dist*5,life:90});
+      beep(220,.08,'sawtooth',.1);
+    }
+    if(a.y>H+50) a.dead=true;
+  });
+  mg.lasers.forEach(l=>{l.x+=l.vx;l.y+=l.vy;l.life--;});
+  mg.lasers=mg.lasers.filter(l=>l.life>0);
+  if(mg.invincible<=0){
+    mg.lasers.forEach(l=>{if(Math.sqrt((l.x-mg.sx)**2+(l.y-mg.sy)**2)<24){mg.health-=20;mg.invincible=45;l.life=0;beep(150,.2,'sawtooth',.2);if(mg.health<=0){mg.phase='lose';failJingle();}}});
+  }
+  if(mg.invincible>0) mg.invincible--;
+  mg.aliens=mg.aliens.filter(a=>!a.dead);
+  mg.spawnTimer++;
+  if(mg.spawnTimer>210&&mg.aliens.length<5){mg.spawnTimer=0;spawnAlien();}
+  mg.particles=mg.particles.filter(p=>p.life>0);
+  mg.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.2;p.life--;});
+  mg.timer--;
+  if(mg.timer<=0){mg.phase='win';successJingle();}
+}
+function drawAlien_mg(){
+  const mg=GS.mg;
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#000008');sky.addColorStop(.5,'#050520');sky.addColorStop(1,'#0a0a28');
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+  drawStars(60);
+  // UFO
+  const ufoX=W/2+Math.sin(GS.t*.03)*70;
+  ctx.fillStyle='#555';ctx.beginPath();ctx.ellipse(ufoX,58,72,22,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#888';ctx.beginPath();ctx.ellipse(ufoX,48,36,18,0,0,Math.PI*2);ctx.fill();
+  for(let i=0;i<8;i++){const a=i*Math.PI/4+GS.t*.05;ctx.fillStyle=Math.floor(GS.t*.1+i)%2?'#0ff':'#00f';ctx.beginPath();ctx.arc(ufoX+Math.cos(a)*58,58+Math.sin(a)*16,4,0,Math.PI*2);ctx.fill();}
+  ctx.fillStyle='rgba(0,255,200,0.07)';ctx.beginPath();ctx.moveTo(ufoX-22,82);ctx.lineTo(ufoX+22,82);ctx.lineTo(ufoX+90,H-110);ctx.lineTo(ufoX-90,H-110);ctx.closePath();ctx.fill();
+  drawMountains(370,'#3a2a1a');
+  rect(0,H-100,W,100,'#4a3820');
+  rect(0,H-102,W,4,'#6a5830');
+  for(let i=0;i<3;i++) drawCactus(150+i*240,H-100);
+  // Lasers
+  mg.lasers.forEach(l=>{ctx.strokeStyle='rgba(0,255,60,0.85)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(l.x,l.y);ctx.lineTo(l.x-l.vx*5,l.y-l.vy*5);ctx.stroke();});
+  // Aliens
+  mg.aliens.forEach(a=>{
+    if(a.dead) return;
+    const bob=Math.sin(a.frame*Math.PI*2)*3;
+    ctx.fillStyle='#8aabb0';ctx.beginPath();ctx.ellipse(a.x,a.y+3+bob,20,10,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#aacccc';ctx.beginPath();ctx.ellipse(a.x,a.y-9+bob,11,14,0,Math.PI,Math.PI*2);ctx.fill();
+    rect(a.x-11,a.y-13+bob,8,8,'#050a05'); rect(a.x+3,a.y-13+bob,8,8,'#050a05');
+    ctx.fillStyle='#0f0';ctx.beginPath();ctx.arc(a.x-7,a.y-10+bob,3,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#0f0';ctx.beginPath();ctx.arc(a.x+7,a.y-10+bob,3,0,Math.PI*2);ctx.fill();
+    rect(a.x-24,a.y+bob,7,4,'#8aabb0'); rect(a.x+17,a.y+bob,7,4,'#8aabb0');
+    for(let i=0;i<a.hp;i++) rect(a.x-8+i*7,a.y-30+bob,5,3,'#0f0');
+  });
+  mg.particles.forEach(p=>{ctx.fillStyle=p.col;ctx.fillRect(p.x,p.y,4,4);});
+  if(mg.invincible<=0||Math.floor(GS.t*.2)%2) drawSteven(mg.sx,mg.sy,1.1,GS.t);
+  if(mg.punchFlash>0){ctx.strokeStyle=`rgba(255,200,0,${mg.punchFlash/10})`;ctx.lineWidth=3;ctx.beginPath();ctx.arc(mg.sx,mg.sy,60,0,Math.PI*2);ctx.stroke();}
+  rect(0,0,W,34,'rgba(0,0,0,0.82)');
+  txt('ALIEN INVASION!',W/2,22,'#0ff',15,'center');
+  txt(`HP: ${mg.health}%`,10,22,'#e94560',12);
+  txt(`SCORE: ${mg.score}`,W-10,22,'#0f0',12,'right');
+  txt(`TIME: ${Math.ceil(mg.timer/60)}s`,350,22,'#0ff',12);
+  rect(0,34,W*(mg.health/100),5,'#e94560');
+  txt('WASD: move  |  SPACE: punch',W/2,H-6,'#aaa',9,'center');
+  if(mg.phase==='win'){overlay();txt('ALIENS DEFEATED!',W/2,H/2-38,'#0ff',26,'center');txt('Steven: "Take that, galaxy brain!"',W/2,H/2+2,'#ffd700',13,'center');txt(`${Math.floor(mg.score/150)} aliens defeated! Score: ${mg.score}`,W/2,H/2+26,'#fff',13,'center');txt('ENTER to continue',W/2,H/2+65,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;exitMinigame(true);}}
+  if(mg.phase==='lose'){overlay();txt('ABDUCTED!',W/2,H/2-35,'#e94560',28,'center');txt('"The aliens tried to steal his chips."',W/2,H/2+5,'#fff',13,'center');txt('ENTER to continue',W/2,H/2+48,'#aaa',12,'center');if(kd['Enter']||kd['Space']){kd['Enter']=false;GS.chips=Math.max(0,GS.chips-50);exitMinigame(false);}}
+}
+
+// ============================================================
+// MINI-GAME: TRASH TRUCK / TELEKINESIS
+// ============================================================
+function spawnTrashItem(){
+  // Only spawn within telekinesis reach: pull point is (truckX, H-105=415), range 220
+  // Safest y band: 220–350 (always reachable regardless of truckX position)
+  GS.mg.trashItems.push({x:80+Math.random()*(W-160),y:220+Math.random()*130,type:Math.floor(Math.random()*4),collected:false});
+}
+function initTrash(){
+  GS.mg={phase:'play',truckX:W/2-55,collected:0,score:0,timer:1800,powerMeter:100,orbitAngle:0,trashItems:[],particles:[],spawnTimer:0};
+  for(let i=0;i<10;i++) spawnTrashItem();
+}
+function updateTrash(){
+  const mg=GS.mg; if(mg.phase!=='play') return;
+  if(keys['ArrowLeft']||keys['KeyA']) mg.truckX=Math.max(70,mg.truckX-3);
+  if(keys['ArrowRight']||keys['KeyD']) mg.truckX=Math.min(W-100,mg.truckX+3);
+  mg.orbitAngle+=.06;
+  const teleOn=keys['Space']||keys['KeyW']||keys['ArrowUp'];
+  if(teleOn){
+    mg.powerMeter=Math.max(0,mg.powerMeter-1);
+    mg.trashItems.forEach(t=>{
+      if(t.collected) return;
+      const dx=mg.truckX-t.x, dy=(H-105)-t.y, dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<240&&dist>0){t.x+=dx/dist*5;t.y+=dy/dist*5;}
+    });
+  } else mg.powerMeter=Math.min(100,mg.powerMeter+.3);
+  mg.trashItems.forEach(t=>{
+    if(t.collected) return;
+    const dx=mg.truckX-t.x, dy=(H-105)-t.y;
+    if(Math.sqrt(dx*dx+dy*dy)<50){t.collected=true;mg.collected++;mg.score+=50;for(let i=0;i<6;i++) mg.particles.push({x:t.x,y:t.y,vx:(Math.random()-.5)*5,vy:-Math.random()*4,life:25,col:'#0f0'});beep(660,.08,'square',.1);}
+  });
+  // Spawn 3 new items every 2 seconds, as long as fewer than 7 active
+  mg.spawnTimer++;
+  if(mg.spawnTimer>120){
+    mg.spawnTimer=0;
+    const active=mg.trashItems.filter(t=>!t.collected).length;
+    if(active<7){
+      for(let i=0;i<3;i++) spawnTrashItem();
+      beep(330,.06,'square',.05);
+    }
+  }
+  mg.particles=mg.particles.filter(p=>p.life>0);
+  mg.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.2;p.life--;});
+  // Win early if player is crushing it
+  if(mg.collected>=12){mg.phase='win';successJingle();GS.flags.becameGarbageMan=true;return;}
+  mg.timer--;
+  if(mg.timer<=0){
+    mg.phase=mg.collected>=6?'win':'lose';
+    if(mg.phase==='win'){successJingle();GS.flags.becameGarbageMan=true;}else failJingle();
+  }
+}
+function drawTrash_mg(){
+  const mg=GS.mg;
+  const sky=ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#6a8abf');sky.addColorStop(.5,'#8ab4d4');sky.addColorStop(1,'#4a6a8a');
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+  for(let i=0;i<4;i++) drawTree(i*200+80,310,.9+i%2*.3);
+  rect(0,H-120,W,120,'#4a7a2a'); rect(0,H-123,W,5,'#3a6a1a');
+  rect(0,H-90,W,60,'#444');
+  // Telekinesis glow
+  if(keys['Space']||keys['KeyW']||keys['ArrowUp']){ctx.fillStyle=`rgba(0,255,100,${.04+Math.sin(GS.t*.1)*.02})`;ctx.beginPath();ctx.arc(mg.truckX,H-105,220,0,Math.PI*2);ctx.fill();}
+  // Trash items
+  const trashCols=['#8B4513','#555','#dd3333','#aaa'];
+  const trashEmoji=['📦','🗑','🥤','📰'];
+  mg.trashItems.forEach(t=>{if(t.collected) return;rect(t.x-8,t.y-8,16,16,trashCols[t.type]);ctx.font='12px serif';ctx.fillText(trashEmoji[t.type],t.x-7,t.y+5);});
+  mg.particles.forEach(p=>{ctx.fillStyle=p.col;ctx.fillRect(p.x,p.y,4,4);});
+  // Trash truck (orange, Seattle Sanitation)
+  rect(mg.truckX-55,H-132,110,52,'#ff8c00');
+  rect(mg.truckX+28,H-122,32,42,'#555'); rect(mg.truckX+33,H-118,22,22,'#aaddff');
+  rect(mg.truckX-30,H-82,20,10,'#333'); rect(mg.truckX+22,H-82,20,10,'#333');
+  txt('SEATTLE SANITATION',mg.truckX,H-108,'#fff',7,'center');
+  // Steven with orbit
+  drawSteven(mg.truckX,H-147,1.1,GS.t);
+  for(let i=0;i<4;i++){const a=mg.orbitAngle+i*(Math.PI/2);ctx.fillStyle='rgba(60,200,60,0.9)';ctx.fillRect(mg.truckX+Math.cos(a)*38-5,H-147+Math.sin(a)*20-5,10,10);}
+  // Bottom strip: power meter + controls
+  rect(0,H-28,W,28,'rgba(0,0,0,0.75)');
+  rect(8,H-20,192,11,'#111');
+  rect(8,H-20,mg.powerMeter*1.92,11,'#00ff88');
+  txt(`TELE-POWER ${Math.floor(mg.powerMeter)}%`,106,H-11,'#00ff88',8,'center');
+  txt('◄► move  |  SPACE/W: attract trash',W/2,H-9,'#888',9,'center');
+  // Top HUD bar (2 rows)
+  rect(0,0,W,46,'rgba(0,0,0,0.82)');
+  txt('TRASH TELEKINESIS!',W/2,18,'#00ff88',14,'center');
+  txt(`TIME: ${Math.ceil(mg.timer/60)}s`,W-8,18,'#0ff',11,'right');
+  txt(`COLLECTED: ${mg.collected}`,8,36,'#ffd700',10);
+  txt('(12 = early win, 6+ at time = win)',148,36,'#888',9);
+  txt(`ON STREET: ${mg.trashItems.filter(t=>!t.collected).length}`,W-8,36,'#aaa',10,'right');
+  if(mg.phase==='win'){
+    overlay();
+    txt('STREETS CLEANED!',W/2,H/2-44,'#00ff88',26,'center');
+    txt('Steven: "I was born for this."',W/2,H/2-8,'#ffd700',14,'center');
+    txt(`${mg.collected} items collected!  Score: ${mg.score}`,W/2,H/2+18,'#fff',13,'center');
+    txt('★  SEATTLE\'S GREATEST TRASH MAN  ★',W/2,H/2+42,'#00ff88',12,'center');
+    if(Math.floor(GS.t*.07)%2) txt('ENTER to continue',W/2,H/2+72,'#ffd700',12,'center');
+    if(kd['Enter']||kd['Space']){
+      kd['Enter']=false;kd['Space']=false;
+      GS.money+=200;GS.reputation+=15;
+      GS.screen='win';GS.minigame=null;_lastMG=null;
+      msgBox.style.display='none';choicesDiv.innerHTML='';hud.style.display='none';
+    }
+  }
+  if(mg.phase==='lose'){
+    overlay();
+    txt('NOT ENOUGH TRASH!',W/2,H/2-38,'#e94560',22,'center');
+    txt('"I let Seattle down."',W/2,H/2+8,'#aaa',14,'center');
+    txt(`Only ${mg.collected} collected — need 6.`,W/2,H/2+30,'#888',11,'center');
+    if(Math.floor(GS.t*.07)%2) txt('ENTER to continue',W/2,H/2+58,'#ffd700',12,'center');
+    if(kd['Enter']||kd['Space']){kd['Enter']=false;kd['Space']=false;GS.reputation-=5;exitMinigame(false);}
+  }
+}
+
+// ---- UTILITIES ----
+function overlay(){rect(0,0,W,H,'rgba(0,0,0,0.78)');}
+
+function exitMinigame(success){
+  GS.screen='map'; GS.minigame=null; _lastMG=null;
+  GS.awaitingChoice=false;
+  showHUD(); updateHUD();
+  if(success){GS.money+=100;GS.reputation+=5;showMsg('Mini-game complete! +$100 +5 Rep',true);}
+  else{GS.reputation-=5;showMsg('Rough day... -5 Rep. Steven drives on.',false);}
+}
+
+// ---- GAME OVER / WIN ----
+function drawGameOver(){
+  rect(0,0,W,H,'#000'); drawStars(60);
+  txtShadow('GAME OVER',W/2,185,'#e94560','#600',46);
+  txt("Steven's adventure has ended.",W/2,258,'#aaa',13,'center');
+  txt(`Miles driven: ${Math.floor(GS.miles)}`,W/2,295,'#ffd700',12,'center');
+  txt(`Money: $${GS.money}`,W/2,318,'#ffd700',12,'center');
+  txt(`Reputation: ${GS.reputation}`,W/2,341,'#ffd700',12,'center');
+  txt('ENTER to play again',W/2,430,'#fff',13,'center');
+  if(kd['Enter']||kd['Space']){kd['Enter']=false;resetGame();}
+}
+
+function drawWin(){
+  rect(0,0,W,H,'#000010'); drawStars(80);
+  txtShadow('YOU WIN!',W/2,118,'#ffd700','#8B4500',46);
+  txt('Steven has conquered the western US!',W/2,183,'#00ff88',15,'center');
+  txt('Chip trucker. Ninja fighter. Trash Man. Legend.',W/2,206,'#aaa',12,'center');
+  drawSteven(W/2,288,2.8,GS.t);
+  const trophies=[];
+  if(GS.flags.gainedPowers) trophies.push('★ Telekinesis Master');
+  if(GS.flags.ninjasDefeated) trophies.push('★ Ninja Slayer');
+  if(GS.flags.huntingDone) trophies.push('★ Turkey Hunter');
+  if(GS.flags.becameGarbageMan) trophies.push('★ Trash Man Legend');
+  trophies.forEach((t,i)=>txt(t,W/2,360+i*18,'#ffd700',11,'center'));
+  txt(`$${GS.money} | Day ${GS.day} | ${Math.floor(GS.miles)} mi`,W/2,455,'#aaa',11,'center');
+  if(Math.floor(GS.t*.06)%2) txt('ENTER to play again',W/2,482,'#fff',13,'center');
+  if(kd['Enter']||kd['Space']){kd['Enter']=false;resetGame();}
+}
+
+function resetGame(){
+  Object.assign(GS,{screen:'title',minigame:null,chapter:1,health:100,fuel:100,chips:500,money:250,reputation:50,miles:0,day:1,flags:{gainedPowers:false,lostClothes:false,ninjasDefeated:false,huntingDone:false,llnlVisited:false,becameGarbageMan:false},currentDest:0,t:0,frameCount:0,awaitingChoice:false,mg:{},eventsFired:new Set()});
+  triviaPool=[]; _lastMG=null;
+  msgBox.style.display='none'; choicesDiv.innerHTML=''; hud.style.display='none'; chapterBanner.style.display='none';
+}
+
+// ---- MAIN LOOP ----
+let _lastMG=null;
+
+function gameLoop(){
+  GS.t++; GS.frameCount++;
+
+  if(GS.health<=0||GS.fuel<=0){
+    if(GS.screen!=='gameover'&&GS.screen!=='win'){
+      GS.screen='gameover'; failJingle();
+      hud.style.display='none'; msgBox.style.display='none'; choicesDiv.innerHTML='';
+    }
+  }
+
+  ctx.clearRect(0,0,W,H);
+
+  switch(GS.screen){
+    case 'title':    drawTitle();    break;
+    case 'map':      drawMap();      break;
+    case 'drive':    drawDrive();    break;
+    case 'gameover': drawGameOver(); break;
+    case 'win':      drawWin();      break;
+    case 'minigame':
+      // Init on the exact first frame — prevents crash from uninitialized mg state
+      if(GS.minigame!==_lastMG){
+        _lastMG=GS.minigame;
+        hud.style.display='none'; msgBox.style.display='none'; choicesDiv.innerHTML='';
+        switch(GS.minigame){
+          case 'frogger': initFrogger(); break;
+          case 'hunt':    initHunt();    break;
+          case 'llnl':    initLLNL();    break;
+          case 'ninja':   initNinja();   break;
+          case 'chp':     initCHP();     break;
+          case 'mormon':  initMormon();  break;
+          case 'alien':   initAlien();   break;
+          case 'trash':   initTrash();   break;
+        }
+      }
+      switch(GS.minigame){
+        case 'frogger': updateFrogger(); drawFrogger();   break;
+        case 'hunt':    updateHunt();    drawHunt();      break;
+        case 'llnl':    updateLLNL();    drawLLNL();      break;
+        case 'ninja':   updateNinja();   drawNinja_mg();  break;
+        case 'chp':     updateCHP();     drawCHP_mg();    break;
+        case 'mormon':  updateMormon();  drawMormon_mg(); break;
+        case 'alien':   updateAlien();   drawAlien_mg();  break;
+        case 'trash':   updateTrash();   drawTrash_mg();  break;
+      }
+      break;
+  }
+
+  if(GS.screen!=='minigame') _lastMG=null;
+
+  // Win trigger: trash man complete → win screen
+  if(GS.screen==='map'&&GS.currentDest>=9&&GS.flags.becameGarbageMan){
+    GS.screen='win';
+  }
+
+  // Virtual joystick overlay on all interactive screens
+  if(GS.screen==='drive'||GS.screen==='minigame') drawVJ();
+
+  Object.keys(kd).forEach(k=>kd[k]=false);
+  requestAnimationFrame(gameLoop);
+}
+
+hideHUD();
+gameLoop();
+</script>
+</body>
+</html>
