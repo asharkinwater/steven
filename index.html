@@ -497,7 +497,7 @@ function showChapterBanner(num,title,sub,cb){
 // leg: which currentDest value guarantees this event fires on first slot
 const EVENTS=[
   {
-    id:'ninja_chips', title:'NINJA ATTACK!',
+    id:'ninja_chips', title:'NINJA ATTACK!', oneTime:true,
     text:"Dark figures drop from an overpass! They're after your potato chips! A note flutters down: 'Hand over the chips or face our KATANAS.'",
     choices:[
       {label:'Fight them off!', fn:gs=>{gs.screen='minigame';gs.minigame='ninja';}},
@@ -583,7 +583,7 @@ const EVENTS=[
     ]
   },
   {
-    id:'snowboard_denver', title:'ROCKY MOUNTAIN BREAK!', leg:7, oneTime:true,
+    id:'snowboard_denver', title:'ROCKY MOUNTAIN BREAK!', leg:6, oneTime:true,
     text:"You've been driving for days. Cresting I-70 into the Rockies, you spot a fresh powder slope and a rental shack. The sign reads: BRECKENRIDGE ULTRA-EXTREME SNOWBOARD PARK. A yeti waves from the chairlift.",
     choices:[
       {label:'Shred the mountain! (Mini-game)', fn:gs=>{gs.screen='minigame';gs.minigame='snowboard';}},
@@ -605,18 +605,24 @@ const TRIVIA=[
   {q:"What river forms the border between Texas and Mexico?", correct:"Rio Grande", wrong:["Colorado River","Pecos River"], prize:350},
 ];
 let triviaPool=[];
+let _triviaQ=null; // holds current question until answered — never consumed silently
 function getRadioEvent(){
-  if(triviaPool.length===0) triviaPool=[...TRIVIA].sort(()=>Math.random()-.5);
-  const q=triviaPool.pop();
+  // Peek at next question without consuming it; only advance after the player answers
+  if(!_triviaQ){
+    if(triviaPool.length===0) triviaPool=[...TRIVIA].sort(()=>Math.random()-.5);
+    _triviaQ=triviaPool.pop();
+  }
+  const q=_triviaQ;
   const wrong=q.wrong[Math.floor(Math.random()*q.wrong.length)];
+  const advance=()=>{_triviaQ=null;}; // call on any answer to unlock next question
   return {
     id:'radio_trivia',
     title:'RADIO TRIVIA CONTEST!',
     text:`Country 94.3 is live with a trivia contest! The question: "${q.q}" — answer correctly and win $${q.prize} cash! The DJ is standing by...`,
     choices:[
-      {label:q.correct, fn:gs=>{gs.money+=q.prize;gs.reputation+=8;successJingle();showMsg(`CORRECT! You win $${q.prize}! The DJ declares you the smartest trucker on the highway.`,true);}},
-      {label:wrong, fn:gs=>{showMsg('WRONG. The DJ lets out a long, disappointed sigh on air.',false);}},
-      {label:'Focus on driving', fn:gs=>{showMsg('You resist temptation. Someone else wins. Sensible, if sad.',false);}},
+      {label:q.correct, fn:gs=>{advance();gs.money+=q.prize;gs.reputation+=8;successJingle();showMsg(`CORRECT! You win $${q.prize}! The DJ declares you the smartest trucker on the highway.`,true);}},
+      {label:wrong, fn:gs=>{advance();showMsg('WRONG. The DJ lets out a long, disappointed sigh on air.',false);}},
+      {label:'Focus on driving', fn:gs=>{advance();showMsg('You resist temptation. Someone else wins. Sensible, if sad.',false);}},
     ]
   };
 }
@@ -624,10 +630,7 @@ function getRadioEvent(){
 function triggerRandomDriveEvent(isFirstSlot=false){
   if(isFirstSlot){
     const scripted=EVENTS.find(e=>e.leg===GS.currentDest&&!GS.eventsFired.has(e.id));
-    if(scripted){
-      if(scripted.oneTime&&GS.flags.lostClothes){/* fall through */}
-      else{GS.eventsFired.add(scripted.id);triggerEvent(scripted);return;}
-    }
+    if(scripted){GS.eventsFired.add(scripted.id);triggerEvent(scripted);return;}
   }
   const pool=EVENTS.filter(e=>{
     if(e.leg!==undefined) return false;
@@ -1875,7 +1878,7 @@ function drawWin(){
 
 function resetGame(){
   Object.assign(GS,{screen:'title',minigame:null,chapter:1,health:100,fuel:100,chips:500,money:250,reputation:50,miles:0,day:1,flags:{gainedPowers:false,lostClothes:false,ninjasDefeated:false,huntingDone:false,llnlVisited:false,becameGarbageMan:false},currentDest:0,t:0,frameCount:0,awaitingChoice:false,mg:{},eventsFired:new Set()});
-  triviaPool=[]; _lastMG=null;
+  triviaPool=[]; _triviaQ=null; _lastMG=null;
   msgBox.style.display='none'; choicesDiv.innerHTML=''; hud.style.display='none'; chapterBanner.style.display='none';
 }
 
